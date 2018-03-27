@@ -7,6 +7,7 @@ import (
 	"time"
 
 	pbc "github.com/cryptowatch/proto/client"
+	pbs "github.com/cryptowatch/proto/stream"
 	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
 	"github.com/juju/errors"
@@ -30,6 +31,9 @@ const (
 	// now.
 	StateConnecting
 
+	// StateAuthenticating occurs after connceting, while the stream server is authenticating
+	StateAuthenticating
+
 	// StateConnected means the websocket connection is established.
 	StateConnected
 
@@ -48,24 +52,39 @@ const (
 var (
 	StateNames = make([]string, StatesCnt)
 
-	ErrNotConnected   = errors.New("not connected")
-	ErrConnLoopActive = errors.New("connection loop is already active")
+	ErrUnknown        StreamError = errors.New("could not authenticate")
+	ErrBadCredentials StreamError = errors.New("bad credentials")
+	ErrNotConnected   StreamError = errors.New("not connected")
+	ErrConnLoopActive StreamError = errors.New("connection loop is already active")
 )
 
 func init() {
 	StateNames[StateDisconnected] = "disconnected"
 	StateNames[StateWaitBeforeReconnect] = "wait_before_reconnect"
 	StateNames[StateConnecting] = "connecting"
+	StateNames[StateAuthenticating] = "authenticating"
 	StateNames[StateConnected] = "connected"
 }
+
+type StreamError error
 
 // StreamParams contains params for opening a client stream connection
 // (see StreamConn)
 type StreamParams struct {
+	// Used for identification/authentication with Biller
+	accessKeyId     string
+	secretAccessKey string
+
+	// Input by user
+	Locale string
+
 	// Server URL, e.g. wss://sb.cryptowat.ch
 	URL string
 	// Initial set of subscription keys
 	Subscriptions []string
+
+	// Called whenever an error occurs, so the client can handle it
+	onError func(e error)
 
 	// Whether the library should reconnect automatically
 	Reconnect bool
@@ -96,9 +115,6 @@ type StreamConn struct {
 	// Error caused the current state; only relevant for StateDisconnected and
 	// StateWaitBeforeReconnect, for other states it's always nil.
 	stateCause error
-
-	// onReadCB, if not nil, is called for each received websocket message.
-	onReadCB onReadCallback
 
 	// connCtx and connCtxCancel are context and its cancel func for the
 	// currently running connLoop. If no connLoop is running at the moment (i.e.
@@ -169,8 +185,9 @@ func NewStreamConn(params *StreamParams) (*StreamConn, error) {
 		c.params.MaxReconnectTimeout = 30 * time.Second
 	}
 
-	// When connected, will send client identification message
+	// When connected, will send client identification and authentication messages
 	c.AddStateListener(StateConnected, sendClientID)
+	c.AddStateListener(StateConnected, authenticateOnConnect)
 
 	// Start writeLoop right away, before even connecting, so that an attempt to
 	// write something while not connected will result in a proper error.
@@ -252,6 +269,7 @@ func (c *StreamConn) AddStateListenerOpt(state State, cb StateCallback, opt Stat
 //
 // It doesn't wait for the connection to establish, and returns immediately.
 func (c *StreamConn) Connect() error {
+
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
@@ -316,6 +334,8 @@ func (c *StreamConn) closeInternal(data []byte, stopReconnecting bool) error {
 		}
 	}
 
+	c.updateState(StateDisconnected)
+
 	return nil
 }
 
@@ -365,13 +385,24 @@ func (c *StreamConn) GetState() State {
 	return c.state
 }
 
-type onReadCallback func(conn *StreamConn, data []byte)
+// onRead is called for every message received by the connection.
+func (c *StreamConn) onRead(data []byte) {
+	var msg pbs.StreamMessage
+	if err := proto.Unmarshal(data, &msg); err != nil {
+		// Close connection (and if reconnection was requested, then reconnect)
+		c.closeInternal(
+			websocket.FormatCloseMessage(websocket.CloseUnsupportedData, ""),
+			false,
+		)
+	}
+	switch msg.GetBody().(type) {
+	case *pbs.StreamMessage_AuthenticationResult:
+		authRes := msg.GetAuthenticationResult()
+		c.authResponseHandler(authRes)
 
-// onRead sets on-read callback; it should be called once right after creation
-// of the StreamConn by a wrapper (like MarketConn), before the connection is
-// established.
-func (c *StreamConn) onRead(cb onReadCallback) {
-	c.onReadCB = cb
+	case *pbs.StreamMessage_MarketUpdate:
+		println("hello world 2")
+	}
 }
 
 // send sends data to the websocket if it's connected
@@ -502,7 +533,7 @@ func (c *StreamConn) updateState(state State, cause error) {
 }
 
 // connLoop establishes a connection, then keeps receiving all websocket
-// messages (and calls onReadCB for each of them) until the connection is
+// messages (and calls onRead for each of them) until the connection is
 // closed, then either waits for a timeout and connects again, or just quits.
 func (c *StreamConn) connLoop(connCtx context.Context, connCtxCancel context.CancelFunc) {
 	var connErr error
@@ -553,9 +584,7 @@ cloop:
 					}
 
 					// Call on-read callback, if any
-					if c.onReadCB != nil {
-						c.onReadCB(c, data)
-					}
+					c.onRead(data)
 
 				case websocket.CloseMessage:
 					// TODO: set connErr to something? So that the state listeners will
@@ -663,9 +692,10 @@ func sendClientID(c *StreamConn, oldState, new State, cause error) {
 				// even if we do autogenerate some file with the revision on every
 				// commit, it would actually represent previous commit, not the current
 				// one, and this would be just weird.
-				Revision:      "",
-				Integration:   "",      // Irrelevant
-				Locale:        "en_US", // TODO: get locale from the OS
+				Revision:    "",
+				Integration: "", // Irrelevant
+
+				Locale:        c.params.Locale,
 				Subscriptions: c.params.Subscriptions,
 			},
 		},
