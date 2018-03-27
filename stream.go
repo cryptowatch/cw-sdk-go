@@ -31,8 +31,7 @@ const (
 	// now.
 	StateConnecting
 
-	// StateAuthenticating means the client has connected, but the authentication
-	// handshake has not completed.
+	// StateAuthenticating occurs after connceting, while the stream server is authenticating
 	StateAuthenticating
 
 	// StateConnected means the websocket connection is established.
@@ -53,16 +52,21 @@ const (
 var (
 	StateNames = make([]string, StatesCnt)
 
-	ErrNotConnected   = errors.New("not connected")
-	ErrConnLoopActive = errors.New("connection loop is already active")
+	ErrUnknown        StreamError = errors.New("could not authenticate")
+	ErrBadCredentials StreamError = errors.New("bad credentials")
+	ErrNotConnected   StreamError = errors.New("not connected")
+	ErrConnLoopActive StreamError = errors.New("connection loop is already active")
 )
 
 func init() {
 	StateNames[StateDisconnected] = "disconnected"
 	StateNames[StateWaitBeforeReconnect] = "wait_before_reconnect"
 	StateNames[StateConnecting] = "connecting"
+	StateNames[StateAuthenticating] = "authenticating"
 	StateNames[StateConnected] = "connected"
 }
+
+type StreamError error
 
 // StreamParams contains params for opening a client stream connection
 // (see StreamConn)
@@ -78,6 +82,9 @@ type StreamParams struct {
 	URL string
 	// Initial set of subscription keys
 	Subscriptions []string
+
+	// Called whenever an error occurs, so the client can handle it
+	onError func(e error)
 
 	// Whether the library should reconnect automatically
 	Reconnect bool
@@ -180,7 +187,7 @@ func NewStreamConn(params *StreamParams) (*StreamConn, error) {
 
 	// When connected, will send client identification and authentication messages
 	c.AddStateListener(StateConnected, sendClientID)
-	c.AddStateListener(StateConnected, authenticate)
+	c.AddStateListener(StateConnected, authenticateOnConnect)
 
 	// Start writeLoop right away, before even connecting, so that an attempt to
 	// write something while not connected will result in a proper error.
@@ -280,7 +287,7 @@ func (c *StreamConn) Connect() error {
 		// right now
 		close(c.reconnectNow)
 
-	case StateConnecting, StateAuthenticating, StateConnected:
+	case StateConnecting, StateConnected:
 		// Already connected or connecting
 		return errors.Trace(ErrConnLoopActive)
 	}
@@ -326,6 +333,8 @@ func (c *StreamConn) closeInternal(data []byte, stopReconnecting bool) error {
 			return errors.Trace(wsConn.Close())
 		}
 	}
+
+	c.updateState(StateDisconnected)
 
 	return nil
 }

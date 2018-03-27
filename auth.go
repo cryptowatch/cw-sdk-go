@@ -11,9 +11,13 @@ import (
 	pbs "github.com/cryptowatch/proto/stream"
 )
 
-// authenticate is used as a state change listener for StateConnected. That is
+// authenticateOnConnect is used as a state change listener for StateConnected. That is
 // to say, once the client connects, it attempts to authenticate.
-func authenticate(conn *StreamConn, oldState, state State, cause error) {
+func authenticateOnConnect(conn *StreamConn, oldState, state State, cause error) {
+	conn.sendAuthRequest()
+}
+
+func (c *StreamConn) sendAuthRequest() {
 	nonce := getNonce()
 	authMsg := &pbc.ClientMessage{
 		Body: &pbc.ClientMessage_SdkAuthentication{
@@ -33,14 +37,17 @@ func authenticate(conn *StreamConn, oldState, state State, cause error) {
 func (c *StreamConn) authResponseHandler(authRes *pbs.AuthenticationResult) {
 	switch authRes.Status {
 	case AuthenticationResult_AUTHENTICATED:
-		c.mtx.Lock()
-		c.updateState(StateAuthenticated, nil)
-		println("authenticated")
-		c.mtx.Unlock()
-	case AuthenticationResult_TOKEN_MISMATCH:
+		// Good news. no-op
 	case AuthenticationResult_TOKEN_EXPIRED:
-	case AuthenticationResult_BAD_NONCE:
-	case AuthenticationResult_UNKNOWN:
+		// Since the token is expired, we can just try to authenticate again
+		c.sendAuthRequest()
+	case AuthenticationResult_TOKEN_MISMATCH:
+		c.updateState(StateDisconnected, ErrBadCredentials)
+		c.closeInternal(websocket.FormatCloseMessage(websocket.CloseProtocolError, ""), true)
+	case AuthenticationResult_BAD_NONCE,
+		AuthenticationResult_UNKNOWN:
+		// If this case hits, that means there is something wrong with their credentials
+		c.closeInternal(websocket.FormatCloseMessage(websocket.CloseProtocolError, ""), true)
 	}
 }
 
