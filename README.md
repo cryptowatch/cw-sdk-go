@@ -33,8 +33,8 @@ c, err := streamclient.NewStreamConn(&streamclient.StreamParams{
 	ReconnectTimeout: 1 * time.Second,
 	Backoff:          true,
 	Subscriptions:    []string{
-		"market:bitfinex:btcusd:orderbook:deltas",
-		"market:bitfinex:btceur:orderbook:deltas",
+		"markets:1:book:deltas",
+		"markets:1:book:snapshots",
 	},
 
 	APIKey:    "myapikey",
