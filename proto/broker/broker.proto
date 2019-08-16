@@ -2,9 +2,11 @@ syntax = "proto3";
 
 package ProtobufBroker;
 
+import "client/client.proto";
 import "broker/private.proto";
 import "stream/stream.proto";
 
+// DEPRECATION WARNING this isn't used anymore in favor of ProtobufClient.ClientSessionMessage
 message BrokerSessionMessage {
   message Session {
     string userId = 1;
@@ -59,6 +61,9 @@ message ClosePositionRequest {
 
 message SyncRequest {}
 
+// AllBalances grep flag: Ai33fA
+// message AllBalancesRequest{}
+
 message BrokerRequest {
   string id = 1;
   // marketId can be 0 if there is just one session associated with the
@@ -70,6 +75,7 @@ message BrokerRequest {
     ReplaceOrderRequest replaceOrderRequest = 6;
     SyncRequest syncRequest = 4;
     ClosePositionRequest closePositionRequest = 5;
+    // AllBalancesRequest allBalancesRequest = 8; // AllBalances grep flag: Ai33fA
   }
 }
 
@@ -86,8 +92,20 @@ message PositionsUpdate {
 }
 
 message BalancesUpdate {
+  // This field represents available balances, this was the
+  // default until we introduced the ability to split between
+  // total and available balances.
   repeated Balances balances = 1;
+
+  // This field contains total balances only.
+  repeated Balances total = 2;
 }
+
+// AllBalances grep flag: Ai33fA
+// message AllBalancesUpdate {
+//   string id = 1;
+//   repeated Balances balances = 2;
+// }
 
 message RequestResolutionUpdate {
   string id = 1;
@@ -126,8 +144,6 @@ message PermissionsUpdate {
   }
   repeated Agreement agreements = 4;
 
-  bool currencyPairAllowed = 5;
-
   message LeverageLevels {
     repeated string buy = 1;
     repeated string sell = 2;
@@ -136,6 +152,10 @@ message PermissionsUpdate {
   LeverageLevels leverageLevels = 6;
 
   bool supportsOrderExpiry = 7;
+
+  // Removed feature
+  reserved 5;
+  reserved "currencyPairAllowed";
 }
 
 message APIAccessorStatusUpdate {
@@ -156,7 +176,9 @@ message BrokerUpdateMessage {
     PermissionsUpdate permissionsUpdate = 6;
     SessionStatusUpdate sessionStatusUpdate = 7;
     APIAccessorStatusUpdate apiAccessorStatusUpdate = 9;
+    // AllBalancesUpdate allBalancesUpdate = 13; // AllBalances grep flag: Ai33fA
     ProtobufStream.AuthenticationResult authenticationResult = 10;
     ProtobufStream.SubscriptionResult subscriptionResult = 12;
+    ProtobufClient.WebAuthenticationResult webAuthenticationResult = 14;
   }
 }

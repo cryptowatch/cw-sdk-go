@@ -2,19 +2,19 @@ package websocket
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
-	"code.cryptowat.ch/cw-sdk-go/common"
-	pbb "code.cryptowat.ch/cw-sdk-go/proto/broker"
-	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/juju/errors"
+
+	"code.cryptowat.ch/cw-sdk-go/common"
+	pbb "code.cryptowat.ch/cw-sdk-go/proto/broker"
+	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
 )
 
 const (
@@ -22,6 +22,7 @@ const (
 
 	requestTimeout  = 10 * time.Second
 	tradeCacheLimit = 1000
+	// allBalancesMaxAge = 5 * time.Minute // AllBalances grep flag: Ai33fA
 )
 
 // The following errors are returned from TradeClient.
@@ -57,7 +58,7 @@ type OnPositionsUpdateCB func(marketID common.MarketID, positions []common.Priva
 
 // Balances grep flag: Ki49fK
 // OnBalancesUpdateCB defines a callback function for OnBalancesUpdate.
-// type OnBalancesUpdateCB func(marketID common.MarketID, balances common.Balances)
+type OnBalancesUpdateCB func(marketID common.MarketID, balances common.Balances)
 
 // OnMarketReadyCB defines a callback function for OnMarketReadyChange.
 type OnMarketReadyCB func(marketID common.MarketID, ready bool)
@@ -83,11 +84,11 @@ type callTradesListenersReq struct {
 }
 
 // Balances grep flag: Ki49fK
-// type callBalancesListenersReq struct {
-// 	marketID  common.MarketID
-// 	update    common.Balances
-// 	listeners []OnBalancesUpdateCB
-// }
+type callBalancesListenersReq struct {
+	marketID  common.MarketID
+	update    common.Balances
+	listeners []OnBalancesUpdateCB
+}
 
 type callPositionsListenersReq struct {
 	marketID  common.MarketID
@@ -136,6 +137,29 @@ type syncReq struct {
 	response chan error
 }
 
+// AllBalances grep flag: Ai33fA
+// type allBalancesReq struct {
+// 	response chan allBalancesResp
+// }
+
+// type allBalancesResp struct {
+// 	balances common.ExchangeBalances
+// 	err      error
+// }
+
+// type allBalancesCache struct {
+// 	updated time.Time
+// 	mtx     sync.Mutex
+// 	storage common.ExchangeBalances
+// }
+
+type brokerRequest struct {
+	id       string
+	kind     reqType
+	start    time.Time
+	response chan *pbb.BrokerUpdateMessage
+}
+
 // TradeClient is used to manage a connection to Cryptowatch's trading back end, and
 // provides functions for trading on the the subscribed markets. TradeClient
 // also has callbacks for updates related to trading.
@@ -145,30 +169,32 @@ type TradeClient struct {
 	marketIDs []common.MarketID
 
 	// Internal cache used for resolving responses to specific ws messages
-	requests map[string]chan *pbb.RequestResolutionUpdate
+	requests map[string]*brokerRequest
 
 	// This is the current state of the session which matches the broker backend
 	// all values are kept up to date internally.
 	orders    map[common.MarketID]map[string]common.PrivateOrder
 	trades    map[common.MarketID][]common.PrivateTrade
 	positions map[common.MarketID]map[string]common.PrivatePosition
-	// balances  map[common.MarketID]common.Balances // Balances grep flag: Ki49fK
+	balances  map[common.MarketID]common.Balances // Balances grep flag: Ki49fK
+	// allBalances *allBalancesCache // AllBalances grep flag: Ai33fA
 
 	placeOrderRequests  chan placeOrderReq
 	cancelOrderRequests chan cancelOrderReq
 	syncRequests        chan syncReq
+	// allBalancesRequests chan allBalancesReq // AllBalances grep flag: Ai33fA
 
-	callOrdersListeners chan callOrdersListenersReq
-	callTradesListeners chan callTradesListenersReq
-	// callBalancesListeners           chan callBalancesListenersReq // Balances grep flag: Ki49fK
+	callOrdersListeners             chan callOrdersListenersReq
+	callTradesListeners             chan callTradesListenersReq
+	callBalancesListeners           chan callBalancesListenersReq // Balances grep flag: Ki49fK
 	callPositionsListeners          chan callPositionsListenersReq
 	callSessionStatusListeners      chan callSessionStatusListenersReq
 	callSubscriptionResultListeners chan callSubscriptionResultListenersReq
 	callErrorListeners              chan callErrorListenersReq
 
-	ordersListeners []OrdersUpdateCB
-	tradesListeners []PrivateTradesUpdateCB
-	// balancesListeners    []OnBalancesUpdateCB // Balances grep flag: Ki49fK
+	ordersListeners      []OrdersUpdateCB
+	tradesListeners      []PrivateTradesUpdateCB
+	balancesListeners    []OnBalancesUpdateCB // Balances grep flag: Ki49fK
 	positionsListeners   []OnPositionsUpdateCB
 	marketReadyListeners []OnMarketReadyCB
 
@@ -209,6 +235,19 @@ type TradeClientParams struct {
 	Subscriptions []*TradeSubscription
 }
 
+type reqType string
+
+func (r reqType) String() string {
+	return string(r)
+}
+
+const (
+	reqPlaceOrder  reqType = "place-order"
+	reqCancelOrder reqType = "cancel-order"
+	reqSync        reqType = "sync"
+	// reqAllBalances reqType = "all-balances" // AllBalances grep flag: Ai33fA
+)
+
 // NewTradeClient creates a new TradeClient based on the given WSParams. Subscriptions
 // should be an array of market IDs that you have access to trade on.
 func NewTradeClient(params *TradeClientParams) (*TradeClient, error) {
@@ -245,22 +284,24 @@ func NewTradeClient(params *TradeClientParams) (*TradeClient, error) {
 		tradeStatus: newTradeStatusTracker(),
 
 		// Internal request cache
-		requests: make(map[string]chan *pbb.RequestResolutionUpdate),
+		requests: make(map[string]*brokerRequest),
 
 		orders:    make(map[common.MarketID]map[string]common.PrivateOrder),
 		trades:    make(map[common.MarketID][]common.PrivateTrade),
 		positions: make(map[common.MarketID]map[string]common.PrivatePosition),
 		// Balances grep flag: Ki49fK
-		// balances:  make(map[common.MarketID]common.Balances, common.FundingTypeCnt),
+		balances: make(map[common.MarketID]common.Balances, len(common.FundingTypeNames)),
+		// allBalances: &allBalancesCache{storage: make(common.ExchangeBalances)}, // AllBalances grep flag: Ai33fA
 
 		placeOrderRequests:  make(chan placeOrderReq, 1),
 		cancelOrderRequests: make(chan cancelOrderReq, 1),
 		syncRequests:        make(chan syncReq, 1),
+		// allBalancesRequests: make(chan allBalancesReq, 1), // AllBalances grep flag: Ai33fA
 
 		callOrdersListeners: make(chan callOrdersListenersReq, 1),
 		callTradesListeners: make(chan callTradesListenersReq, 1),
 		// Balances grep flag: Ki49fK
-		// callBalancesListeners:           make(chan callBalancesListenersReq, 1),
+		callBalancesListeners:           make(chan callBalancesListenersReq, 1),
 		callPositionsListeners:          make(chan callPositionsListenersReq, 1),
 		callSessionStatusListeners:      make(chan callSessionStatusListenersReq, 1),
 		callSubscriptionResultListeners: make(chan callSubscriptionResultListenersReq, 1),
@@ -287,7 +328,7 @@ func NewTradeClient(params *TradeClientParams) (*TradeClient, error) {
 
 		case *pbb.BrokerUpdateMessage_BalancesUpdate:
 			// Balances grep flag: Ki49fK
-			// tc.balancesUpdateHandler(tc.sMarketID(msg.GetMarketId()), msg.GetBalancesUpdate())
+			tc.balancesUpdateHandler(tc.sMarketID(msg.GetMarketId()), msg.GetBalancesUpdate())
 
 		case *pbb.BrokerUpdateMessage_PositionsUpdate:
 			tc.positionsUpdateHandler(tc.sMarketID(msg.GetMarketId()), msg.GetPositionsUpdate())
@@ -298,9 +339,37 @@ func NewTradeClient(params *TradeClientParams) (*TradeClient, error) {
 		case *pbb.BrokerUpdateMessage_SessionStatusUpdate:
 			tc.sessionStatusUpdateHandler(tc.sMarketID(msg.GetMarketId()), msg.GetSessionStatusUpdate())
 
-			// Internal order resolution
+		// Internal order resolution
+		// AllBalances grep flag: Ai33fA
+		// case *pbb.BrokerUpdateMessage_RequestResolutionUpdate, *pbb.BrokerUpdateMessage_AllBalancesUpdate:
 		case *pbb.BrokerUpdateMessage_RequestResolutionUpdate:
-			tc.requestResolutionHandler(tc.sMarketID(msg.GetMarketId()), msg.GetRequestResolutionUpdate())
+			var id string
+			switch m := msg.Update.(type) {
+			case *pbb.BrokerUpdateMessage_RequestResolutionUpdate:
+				id = m.RequestResolutionUpdate.Id
+				// AllBalances grep flag: Ai33fA
+				// case *pbb.BrokerUpdateMessage_AllBalancesUpdate:
+				// 	id = m.AllBalancesUpdate.Id
+			}
+
+			if id == "" {
+				return
+			}
+
+			tc.mtx.Lock()
+			bReq, ok := tc.requests[id]
+			tc.mtx.Unlock()
+
+			if !ok {
+				return
+			}
+
+			if time.Now().Sub(bReq.start) > requestTimeout {
+				close(bReq.response)
+				return
+			}
+
+			tc.requestWithIDHandler(id, &msg)
 
 		case *pbb.BrokerUpdateMessage_ApiAccessorStatusUpdate:
 			// We're interested in this update to figure whether we have access to
@@ -370,6 +439,12 @@ listenloop:
 				req.response <- tc.syncInt(req.marketID)
 			}()
 
+		// AllBalances grep flag: Ai33fA
+		// case req := <-tc.allBalancesRequests:
+		// 	go func() {
+		// 		req.response <- tc.getBalancesInt()
+		// 	}()
+
 		case req := <-tc.callOrdersListeners:
 			tc.mtx.Lock()
 			tc.tradeStatus.setModuleReady(req.marketID, tradeModuleOrders)
@@ -391,14 +466,14 @@ listenloop:
 				l(req.marketID, req.update)
 			}
 
-			// Balances grep flag: Ki49fK
-		// case req := <-tc.cfllBalancesListeners:
-		// 	tc.mtx.Lock()
-		// 	tc.tradeStatus.setModuleReady(req.marketID, tradeModuleBalances)
-		// 	tc.mtx.Unlock()
-		// 	for _, l := range req.listeners {
-		// 		l(req.marketID, req.update)
-		// 	}
+		// Balances grep flag: Ki49fK
+		case req := <-tc.callBalancesListeners:
+			tc.mtx.Lock()
+			tc.tradeStatus.setModuleReady(req.marketID, tradeModuleBalances)
+			tc.mtx.Unlock()
+			for _, l := range req.listeners {
+				l(req.marketID, req.update)
+			}
 
 		case req := <-tc.callPositionsListeners:
 			tc.mtx.Lock()
@@ -480,64 +555,39 @@ listenloop:
 	}
 }
 
-func (tc *TradeClient) makeRequest(marketID common.MarketID, req interface{}) (*pbb.RequestResolutionUpdate, error) {
-	requestID := uuid.New().String()
-	responseChan := make(chan *pbb.RequestResolutionUpdate, 1)
-	requestType := "unknown"
+func (tc *TradeClient) makeRequest(kind reqType, req *pbb.BrokerRequest) (*pbb.BrokerUpdateMessage, error) {
+	bReq := &brokerRequest{
+		id:       uuid.New().String(),
+		kind:     kind,
+		response: make(chan *pbb.BrokerUpdateMessage, 1),
+	}
+
+	req.Id = bReq.id
 
 	tc.mtx.Lock()
-	tc.requests[requestID] = responseChan
+	bReq.start = time.Now()
+	tc.requests[bReq.id] = bReq
 	tc.mtx.Unlock()
 
 	defer func() {
 		tc.mtx.Lock()
-		delete(tc.requests, requestID)
+		delete(tc.requests, bReq.id)
 		tc.mtx.Unlock()
 	}()
 
-	var marketIDInt int64
-	if marketID != "" {
-		var err error
-		marketIDInt, err = strconv.ParseInt(string(marketID), 10, 64)
-		if err != nil {
-			return nil, errors.Annotatef(err, "invalid market id %q", marketID)
-		}
-	}
-
-	var sendErr error
-
-	switch r := req.(type) {
-	case *pbb.BrokerRequest_PlaceOrderRequest:
-		requestType = "place-order"
-		sendErr = tc.wsConn.sendProto(context.Background(), &pbb.BrokerRequest{
-			Id:       requestID,
-			MarketId: marketIDInt,
-			Request:  r,
-		})
-
-	case *pbb.BrokerRequest_CancelOrderRequest:
-		requestType = "cancel-order"
-		sendErr = tc.wsConn.sendProto(context.Background(), &pbb.BrokerRequest{
-			Id:       requestID,
-			MarketId: marketIDInt,
-			Request:  r,
-		})
-
-	default:
-		return nil, ErrBadProto
-	}
-
-	if sendErr != nil {
-		return nil, errors.Annotate(sendErr, "tradeclient makeRequest failed")
+	if err := tc.wsConn.sendProto(context.Background(), req); err != nil {
+		return nil, errors.Annotatef(err, "tradeclient %s request failed", bReq.kind)
 	}
 
 	select {
-	case r := <-responseChan:
-		return r, nil
+	case r, ok := <-bReq.response:
+		if !ok {
+			return nil, errors.Errorf("tradeclient %s request failed", bReq.kind)
+		}
 
+		return r, nil
 	case <-time.After(requestTimeout):
-		// TODO Do we delete the request here? Or wait for it to possibly resolve?
-		return nil, fmt.Errorf("request timed out (%v); Type=%v;", requestTimeout, requestType)
+		return nil, errors.Errorf("tradeclient %s request failed: timed out after %s", bReq.kind, requestTimeout.String())
 	}
 }
 
@@ -584,9 +634,9 @@ func (tc *TradeClient) scheduleCallErrorHandlers(
 	}
 }
 
-func (tc *TradeClient) requestResolutionHandler(marketID common.MarketID, res *pbb.RequestResolutionUpdate) {
+func (tc *TradeClient) requestWithIDHandler(id string, msg *pbb.BrokerUpdateMessage) {
 	tc.mtx.Lock()
-	resultChan, ok := tc.requests[res.Id]
+	bReq, ok := tc.requests[id]
 	tc.mtx.Unlock()
 
 	if !ok {
@@ -595,7 +645,8 @@ func (tc *TradeClient) requestResolutionHandler(marketID common.MarketID, res *p
 		return
 	}
 
-	resultChan <- res
+	bReq.response <- msg
+	close(bReq.response)
 }
 
 // PlaceOrder creates a new order based on the given OrderParams. PlaceOrder blocks
@@ -616,39 +667,57 @@ func (tc *TradeClient) PlaceOrder(orderOpt common.PlaceOrderOpt) (common.Private
 }
 
 func (tc *TradeClient) placeOrderInt(orderOpt common.PlaceOrderOpt) placeOrderResp {
-	res, err := tc.makeRequest(
-		orderOpt.MarketID,
-		&pbb.BrokerRequest_PlaceOrderRequest{
+	failedOrder := placeOrderResp{
+		order: common.PrivateOrder{Error: 500},
+	}
+
+	mID, err := orderOpt.MarketID.Int64()
+	if err != nil {
+		failedOrder.err = errors.Annotatef(err, "request failed: %s", reqPlaceOrder)
+		return failedOrder
+	}
+
+	resp, err := tc.makeRequest(reqPlaceOrder, &pbb.BrokerRequest{
+		MarketId: mID,
+		Request: &pbb.BrokerRequest_PlaceOrderRequest{
 			PlaceOrderRequest: &pbb.PlaceOrderRequest{
 				Order: placeOrderOptToProto(orderOpt),
 			},
 		},
-	)
+	})
+
 	if err != nil {
+		failedOrder.err = errors.Annotatef(err, "request failed: %s", reqPlaceOrder)
+		return failedOrder
+	}
+
+	result := resp.GetRequestResolutionUpdate()
+	if result == nil {
+		failedOrder.err = errors.Errorf("request failed: %s", reqPlaceOrder)
+		return failedOrder
+	}
+
+	if result.Error != 0 {
 		return placeOrderResp{
-			order: common.PrivateOrder{Error: 500},
-			err:   errors.Annotate(err, "request failed: place-order"),
+			order: common.PrivateOrder{Error: result.Error},
+			err:   errors.Errorf("[%v] %v", result.Error, result.Message),
 		}
 	}
 
-	var (
-		order     common.PrivateOrder
-		returnErr error
-	)
-
-	if res.Error == 0 {
-		order = privateOrderFromProto(res.GetPlaceOrderResult().Order)
-		tc.mtx.Lock()
-		tc.orders[orderOpt.MarketID][order.CacheKey(orderOpt.MarketID)] = order
-		tc.mtx.Unlock()
-	} else {
-		returnErr = fmt.Errorf("[%v] %v", res.Error, res.Message)
-		order = common.PrivateOrder{Error: res.Error}
+	poRes := result.GetPlaceOrderResult()
+	if poRes == nil {
+		failedOrder.err = errors.Errorf("request failed: %s", reqPlaceOrder)
+		return failedOrder
 	}
+
+	order := privateOrderFromProto(poRes.Order)
+
+	tc.mtx.Lock()
+	tc.orders[orderOpt.MarketID][order.CacheKey(orderOpt.MarketID)] = order
+	tc.mtx.Unlock()
 
 	return placeOrderResp{
 		order: order,
-		err:   returnErr,
 	}
 }
 
@@ -672,20 +741,31 @@ func (tc *TradeClient) CancelOrder(orderOpt common.CancelOrderOpt) error {
 }
 
 func (tc *TradeClient) cancelOrderInt(orderOpt common.CancelOrderOpt) error {
-	res, err := tc.makeRequest(
-		orderOpt.MarketID,
-		&pbb.BrokerRequest_CancelOrderRequest{
+	mID, err := orderOpt.MarketID.Int64()
+	if err != nil {
+		return errors.Annotatef(err, "request failed: %s", reqCancelOrder)
+	}
+
+	resp, err := tc.makeRequest(reqCancelOrder, &pbb.BrokerRequest{
+		MarketId: mID,
+		Request: &pbb.BrokerRequest_CancelOrderRequest{
 			CancelOrderRequest: &pbb.CancelOrderRequest{
 				OrderId: orderOpt.OrderID,
 			},
 		},
-	)
+	})
+
 	if err != nil {
-		return errors.Annotate(err, "request failed: cancel-order")
+		return errors.Annotatef(err, "request failed: %s", reqCancelOrder)
 	}
 
-	if res.Error != 0 {
-		return fmt.Errorf("[%v] %v", res.Error, res.Message)
+	result := resp.GetRequestResolutionUpdate()
+	if result == nil {
+		return errors.Annotatef(err, "request failed: %s", reqCancelOrder)
+	}
+
+	if result.Error != 0 {
+		return errors.Errorf("[%v] %v", result.Error, result.Message)
 	}
 
 	return nil
@@ -709,21 +789,30 @@ func (tc *TradeClient) Sync(marketID common.MarketID) error {
 }
 
 func (tc *TradeClient) syncInt(marketID common.MarketID) error {
-	var marketIDInt int64
-	if marketID != "" {
-		var err error
-		marketIDInt, err = strconv.ParseInt(string(marketID), 10, 64)
-		if err != nil {
-			return errors.Annotatef(err, "invalid market id %q", marketID)
-		}
+	mID, err := marketID.Int64()
+	if err != nil {
+		return errors.Annotatef(err, "request failed: %s", reqSync)
 	}
 
-	tc.wsConn.sendProto(context.Background(), &pbb.BrokerRequest{
-		MarketId: marketIDInt,
+	resp, err := tc.makeRequest(reqSync, &pbb.BrokerRequest{
+		MarketId: mID,
 		Request: &pbb.BrokerRequest_SyncRequest{
 			SyncRequest: &pbb.SyncRequest{},
 		},
 	})
+
+	if err != nil {
+		return errors.Annotatef(err, "request failed: %s", reqSync)
+	}
+
+	result := resp.GetRequestResolutionUpdate()
+	if result == nil {
+		return errors.Annotatef(err, "request failed: %s", reqSync)
+	}
+
+	if result.Error != 0 {
+		return errors.Errorf("[%v] %v", result.Error, result.Message)
+	}
 
 	return nil
 }
@@ -786,28 +875,86 @@ func (tc *TradeClient) GetPositions(marketID common.MarketID) ([]common.PrivateP
 	return ps, nil
 }
 
+// AllBalances grep flag: Ai33fA
+// GetBalances new implementation goes here.
+// func (tc *TradeClient) GetBalances() (common.ExchangeBalances, error) {
+// 	response := make(chan allBalancesResp, 1)
+
+// 	tc.allBalancesRequests <- allBalancesReq{
+// 		response: response,
+// 	}
+
+// 	result := <-response
+
+// 	return result.balances, result.err
+// }
+
+// AllBalances grep flag: Ai33fA
+// func (tc *TradeClient) getBalancesInt() allBalancesResp {
+// 	if time.Now().Sub(tc.allBalances.updated) < allBalancesMaxAge {
+// 		tc.allBalances.mtx.Lock()
+// 		result := tc.allBalances.storage.Copy()
+// 		tc.allBalances.mtx.Unlock()
+
+// 		return allBalancesResp{
+// 			balances: result,
+// 		}
+// 	}
+
+// 	resp, err := tc.makeRequest(reqAllBalances, &pbb.BrokerRequest{
+// 		Request: &pbb.BrokerRequest_AllBalancesRequest{
+// 			AllBalancesRequest: &pbb.AllBalancesRequest{},
+// 		},
+// 	})
+
+// 	if err != nil {
+// 		return allBalancesResp{
+// 			err: errors.Annotatef(err, "request failed: %s", reqAllBalances),
+// 		}
+// 	}
+
+// 	update := resp.GetAllBalancesUpdate()
+// 	if update == nil {
+// 		return allBalancesResp{
+// 			err: errors.Annotatef(err, "request failed: %s", reqAllBalances),
+// 		}
+
+// 	}
+
+// 	result := exchangeBalancesFromProto(update.GetBalances())
+
+// 	tc.allBalances.mtx.Lock()
+// 	tc.allBalances.updated = time.Now()
+// 	tc.allBalances.storage = result
+// 	tc.allBalances.mtx.Unlock()
+
+// 	return allBalancesResp{
+// 		balances: result,
+// 	}
+// }
+
 // Balances grep flag: Ki49fK
-// GetBalances returns a map of FundingType to a list of balances for a
+// GetBalancesWithMarketID returns a map of FundingType to a list of balances for a
 // particular exchange. If the market is not yet ready, returns
 // ErrNotInitialized.
-// func (tc *TradeClient) GetBalances(marketID common.MarketID) (common.Balances, error) {
-// 	tc.mtx.Lock()
-// 	defer tc.mtx.Unlock()
+func (tc *TradeClient) GetBalances(marketID common.MarketID) (common.Balances, error) {
+	tc.mtx.Lock()
+	defer tc.mtx.Unlock()
 
-// 	if !tc.tradeStatus.isMarketReady(marketID) {
-// 		return nil, ErrNotInitialized
-// 	}
+	if !tc.tradeStatus.isMarketReady(marketID) {
+		return nil, ErrNotInitialized
+	}
 
-// 	balances := make(common.Balances, common.FundingTypeCnt)
+	balances := make(common.Balances, len(common.FundingTypeNames))
 
-// 	for ftype, bals := range tc.balances[marketID] {
-// 		balsCopy := make([]common.Balance, len(bals))
-// 		copy(balsCopy, bals)
-// 		balances[ftype] = balsCopy
-// 	}
+	for ftype, bals := range tc.balances[marketID] {
+		balsCopy := make([]common.Balance, len(bals))
+		copy(balsCopy, bals)
+		balances[ftype] = balsCopy
+	}
 
-// 	return balances, nil
-// }
+	return balances, nil
+}
 
 func (tc *TradeClient) ordersUpdateHandler(marketID common.MarketID, update *pbb.OrdersUpdate) {
 	orders := update.GetOrders()
@@ -876,34 +1023,34 @@ func (tc *TradeClient) tradesUpdateHandler(marketID common.MarketID, update *pbb
 }
 
 // Balances grep flag: Ki49fK
-// func (tc *TradeClient) balancesUpdateHandler(marketID common.MarketID, update *pbb.BalancesUpdate) {
-// 	balancesCache := make(common.Balances, common.FundingTypeCnt)
+func (tc *TradeClient) balancesUpdateHandler(marketID common.MarketID, update *pbb.BalancesUpdate) {
+	balancesCache := make(common.Balances, len(common.FundingTypeNames))
 
-// 	// Converting the proto structure, array of arrays, to map of arrays
-// 	// keyed on FundingType
-// 	for _, fundingBalances := range update.GetBalances() {
-// 		var fbals []common.Balance
-// 		for _, b := range fundingBalances.Balances {
-// 			fbals = append(fbals, balanceFromProto(b))
-// 		}
-// 		balancesCache[common.FundingType(fundingBalances.FundingType)] = fbals
-// 	}
+	// Converting the proto structure, array of arrays, to map of arrays
+	// keyed on FundingType
+	for _, fundingBalances := range update.GetBalances() {
+		var fbals []common.Balance
+		for _, b := range fundingBalances.Balances {
+			fbals = append(fbals, balanceFromProto(b))
+		}
+		balancesCache[common.FundingType(fundingBalances.FundingType)] = fbals
+	}
 
-// 	tc.mtx.Lock()
+	tc.mtx.Lock()
 
-// 	tc.balances[marketID] = balancesCache
+	tc.balances[marketID] = balancesCache
 
-// 	listeners := make([]OnBalancesUpdateCB, len(tc.balancesListeners))
-// 	copy(listeners, tc.balancesListeners)
+	listeners := make([]OnBalancesUpdateCB, len(tc.balancesListeners))
+	copy(listeners, tc.balancesListeners)
 
-// 	tc.mtx.Unlock()
+	tc.mtx.Unlock()
 
-// 	tc.callBalancesListeners <- callBalancesListenersReq{
-// 		marketID:  marketID,
-// 		update:    balancesCache,
-// 		listeners: listeners,
-// 	}
-// }
+	tc.callBalancesListeners <- callBalancesListenersReq{
+		marketID:  marketID,
+		update:    balancesCache,
+		listeners: listeners,
+	}
+}
 
 func (tc *TradeClient) positionsUpdateHandler(marketID common.MarketID, update *pbb.PositionsUpdate) {
 	positions := update.GetPositions()
@@ -1001,12 +1148,12 @@ func (tc *TradeClient) OnTradesUpdate(cb PrivateTradesUpdateCB) {
 // immediately when the client initializes, and for every subsequent balance
 // update. An internal cache of balances is kept, and can be accessed with
 // GetBalances()
-// func (tc *TradeClient) OnBalancesUpdate(cb OnBalancesUpdateCB) {
-// 	tc.mtx.Lock()
-// 	defer tc.mtx.Unlock()
+func (tc *TradeClient) OnBalancesUpdate(cb OnBalancesUpdateCB) {
+	tc.mtx.Lock()
+	defer tc.mtx.Unlock()
 
-// 	tc.balancesListeners = append(tc.balancesListeners, cb)
-// }
+	tc.balancesListeners = append(tc.balancesListeners, cb)
+}
 
 // OnPositionsUpdate sets a callback for position updates. This will be
 // called immediately when the client initializes, and for every subsequent
@@ -1046,7 +1193,7 @@ func (tc *TradeClient) sMarketID(marketID int64) common.MarketID {
 		return tc.marketIDs[0]
 	}
 
-	return common.MarketID(fmt.Sprintf("%d", marketID))
+	return common.MarketID(strconv.FormatInt(marketID, 10))
 }
 
 // tradeStatusTracker {{{

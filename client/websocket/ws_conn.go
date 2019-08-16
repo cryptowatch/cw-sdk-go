@@ -10,13 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"code.cryptowat.ch/cw-sdk-go/client/websocket/internal"
-	pbc "code.cryptowat.ch/cw-sdk-go/proto/client"
-	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
 	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
 	"github.com/juju/errors"
 	"honnef.co/go/tools/version"
+
+	"code.cryptowat.ch/cw-sdk-go/client/websocket/internal"
+	pbc "code.cryptowat.ch/cw-sdk-go/proto/client"
+	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
 )
 
 // The following errors are returned from wsConn, which applies to both
@@ -150,6 +151,18 @@ type UnsubscriptionResult struct {
 	Status SubscriptionStatus
 }
 
+// BandwidthUpdate contains information about your stream bandwidth usage
+type Bandwidth struct {
+	OK             bool
+	BytesRemaining int64
+	BytesUsed      int64
+}
+
+func (b Bandwidth) String() string {
+	return fmt.Sprintf("Bandwidth Remaining: %v; Bytes Remaining: %v; Bytes Used: %v;",
+		b.OK, b.BytesRemaining, b.BytesUsed)
+}
+
 // MissedMessages is sent to clients when the server was unable to send all
 // requested messages to the client, so some of them were dropped on the floor.
 // Typically it means that the client subscribed to too much, so it should
@@ -197,6 +210,8 @@ type SubscriptionResultCB func(sr SubscriptionResult)
 
 // SubscriptionResultCB defines a callback function for OnUnsubscriptionResult.
 type UnsubscriptionResultCB func(sr UnsubscriptionResult)
+
+type BandwidthUpdateCB func(b Bandwidth)
 
 // MissedMessagesCB defines a callback function for OnMissedMessages.
 type MissedMessagesCB func(mm MissedMessages)

@@ -3,8 +3,9 @@ package orderbooks
 import (
 	"sort"
 
-	"code.cryptowat.ch/cw-sdk-go/common"
 	"github.com/juju/errors"
+
+	"code.cryptowat.ch/cw-sdk-go/common"
 )
 
 var (

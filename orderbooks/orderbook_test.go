@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"testing"
 
-	"code.cryptowat.ch/cw-sdk-go/common"
 	"github.com/juju/errors"
+
+	"code.cryptowat.ch/cw-sdk-go/common"
 )
 
 func TestOrderBook(t *testing.T) {

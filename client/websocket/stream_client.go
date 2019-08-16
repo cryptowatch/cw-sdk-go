@@ -3,12 +3,14 @@ package websocket
 import (
 	"sync"
 
-	"code.cryptowat.ch/cw-sdk-go/common"
-	pbm "code.cryptowat.ch/cw-sdk-go/proto/markets"
-	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
 	"github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
 	"github.com/juju/errors"
+
+	"code.cryptowat.ch/cw-sdk-go/common"
+	"code.cryptowat.ch/cw-sdk-go/config"
+	pbm "code.cryptowat.ch/cw-sdk-go/proto/markets"
+	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
 )
 
 const (
@@ -43,6 +45,11 @@ type callUnsubscriptionResultListenersReq struct {
 	result    UnsubscriptionResult
 }
 
+type callBandwidthUpdateListenersReq struct {
+	listeners []BandwidthUpdateCB
+	msg       Bandwidth
+}
+
 type callMissedMessagesListenersReq struct {
 	listeners []MissedMessagesCB
 	msg       MissedMessages
@@ -58,13 +65,17 @@ type StreamClient struct {
 	pairUpdateListeners           []PairUpdateCB
 	subscriptionResultListeners   []SubscriptionResultCB
 	unsubscriptionResultListeners []UnsubscriptionResultCB
+	bandwidthUpdateListeners      []BandwidthUpdateCB
 	missedMessagesListeners       []MissedMessagesCB
 
 	callMarketUpdateListeners         chan callMarketUpdateListenersReq
 	callPairUpdateListeners           chan callPairUpdateListenersReq
 	callSubscriptionResultListeners   chan callSubscriptionResultListenersReq
 	callUnsubscriptionResultListeners chan callUnsubscriptionResultListenersReq
+	callBandwidthUpdateListeners      chan callBandwidthUpdateListenersReq
 	callMissedMessagesListeners       chan callMissedMessagesListenersReq
+
+	bandwidth Bandwidth
 
 	// We want to ensure that wsConn's methods aren't available on the
 	// StreamClient to avoid confusion, so we give it explicit name.
@@ -94,6 +105,22 @@ func NewStreamClient(params *StreamClientParams) (*StreamClient, error) {
 	paramsCopy := *params
 	params = &paramsCopy
 
+	if params.WSParams == nil {
+		params.WSParams = &WSParams{}
+
+		// Fall back on config in ~/.cw/credentials.yml
+		var cfg *config.CW
+		defaultConfig, cfgErr := config.DefaultFilepath()
+		if cfgErr == nil {
+			cfg, cfgErr = config.New(defaultConfig)
+		}
+		if cfgErr == nil && cfg != nil {
+			params.WSParams.APIKey = cfg.APIKey
+			params.WSParams.SecretKey = cfg.SecretKey
+			params.WSParams.URL = cfg.StreamURL
+		}
+	}
+
 	if params.WSParams.URL == "" {
 		params.WSParams.URL = DefaultStreamURL
 	}
@@ -115,6 +142,7 @@ func NewStreamClient(params *StreamClientParams) (*StreamClient, error) {
 		callPairUpdateListeners:           make(chan callPairUpdateListenersReq, 1),
 		callSubscriptionResultListeners:   make(chan callSubscriptionResultListenersReq, 1),
 		callUnsubscriptionResultListeners: make(chan callUnsubscriptionResultListenersReq, 1),
+		callBandwidthUpdateListeners:      make(chan callBandwidthUpdateListenersReq, 1),
 		callMissedMessagesListeners:       make(chan callMissedMessagesListenersReq, 1),
 	}
 
@@ -140,6 +168,9 @@ func NewStreamClient(params *StreamClientParams) (*StreamClient, error) {
 
 		case *pbs.StreamMessage_UnsubscriptionResult:
 			sc.unsubscriptionResultHandler(msg.GetUnsubscriptionResult())
+
+		case *pbs.StreamMessage_BandwidthUpdate:
+			sc.bandwidthUpdateHandler(msg.GetBandwidthUpdate())
 
 		case *pbs.StreamMessage_MissedMessages:
 			sc.missedMessagesHandler(msg.GetMissedMessages())
@@ -177,6 +208,11 @@ func (sc *StreamClient) listen() {
 		case req := <-sc.callUnsubscriptionResultListeners:
 			for _, l := range req.listeners {
 				l(req.result)
+			}
+
+		case req := <-sc.callBandwidthUpdateListeners:
+			for _, l := range req.listeners {
+				l(req.msg)
 			}
 
 		case req := <-sc.callMissedMessagesListeners:
@@ -240,6 +276,13 @@ func (sc *StreamClient) OnUnsubscriptionResult(cb UnsubscriptionResultCB) {
 	defer sc.mtx.Unlock()
 
 	sc.unsubscriptionResultListeners = append(sc.unsubscriptionResultListeners, cb)
+}
+
+func (sc *StreamClient) OnBandwidthUpdate(cb BandwidthUpdateCB) {
+	sc.mtx.Lock()
+	defer sc.mtx.Unlock()
+
+	sc.bandwidthUpdateListeners = append(sc.bandwidthUpdateListeners, cb)
 }
 
 // OnMissedMessages is sent to clients when the server was unable to send all
@@ -345,7 +388,7 @@ func (sc *StreamClient) marketUpdateHandler(update *pbm.MarketUpdateMessage) {
 // Dispatches incoming pair update to registered listeners
 func (sc *StreamClient) pairUpdateHandler(update *pbm.PairUpdateMessage) {
 	pair := common.Pair{
-		ID: uint64ToString(update.Pair),
+		ID: common.PairID(uint64ToString(update.Pair)),
 	}
 
 	sc.mtx.Lock()
@@ -411,6 +454,30 @@ func (sc *StreamClient) unsubscriptionResultHandler(update *pbs.UnsubscriptionRe
 	sc.callUnsubscriptionResultListeners <- callUnsubscriptionResultListenersReq{
 		result:    result,
 		listeners: subresListeners,
+	}
+}
+
+func (sc *StreamClient) bandwidthUpdateHandler(update *pbs.BandwidthUpdate) {
+	bandwidth := bandwidthFromProto(update)
+
+	sc.mtx.Lock()
+	sc.bandwidth = bandwidth
+	bandwidthListeners := make([]BandwidthUpdateCB, len(sc.bandwidthUpdateListeners))
+	copy(bandwidthListeners, sc.bandwidthUpdateListeners)
+	sc.mtx.Unlock()
+
+	sc.callBandwidthUpdateListeners <- callBandwidthUpdateListenersReq{
+		msg:       bandwidth,
+		listeners: bandwidthListeners,
+	}
+
+	if !bandwidth.OK {
+		sc.wsConn.disconnectOpt(
+			errors.New("No bandwidth"),
+			websocket.CloseNormalClosure,
+			"Disconnecting due to no bandwidth",
+		)
+		sc.Close()
 	}
 }
 

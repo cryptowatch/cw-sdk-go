@@ -1,62 +1,67 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
-	"os/user"
-	"path"
 	"sort"
 	"strings"
+
+	"github.com/juju/errors"
+	"github.com/rivo/tview"
 
 	"code.cryptowat.ch/cw-sdk-go/client/rest"
 	"code.cryptowat.ch/cw-sdk-go/client/websocket"
 	"code.cryptowat.ch/cw-sdk-go/common"
-	"github.com/juju/errors"
-	"github.com/rivo/tview"
-	"github.com/spf13/pflag"
-)
+	"code.cryptowat.ch/cw-sdk-go/config"
 
-var (
-	marketStrings = pflag.StringSlice("market", []string{}, "Market to handle, like kraken/btc/usd. This flag can be given multiple times.")
-
-	configFilename *string
-
-	streamURL = pflag.String("streamurl", "", "Websocket Stream URL. By default, the production cryptowatch URL is used.")
-	brokerURL = pflag.String("brokerurl", "", "Websocket Broker URL. By default, the production cryptowatch URL is used.")
-
-	config *Config
-	authn  *ConfigAuthn
+	flag "github.com/spf13/pflag"
 )
 
 func main() {
-	configFilenameDefault := getConfigFilenameDefault()
-	configFilename = pflag.String("config-file", configFilenameDefault, "Config filename to use")
-
-	pflag.Parse()
-
-	var err error
-
-	config, err = LoadConfig(*configFilename)
+	// We need this since getting user's home dir can fail.
+	defaultConfig, err := config.DefaultFilepath()
 	if err != nil {
-		printConfigAuthnError(err)
+		fmt.Fprintf(os.Stderr, "%s\n", err)
 		os.Exit(1)
 	}
 
-	authn, err = config.GetAuthn(*streamURL, *brokerURL)
-	if err != nil {
-		printConfigAuthnError(err)
+	var (
+		configFile    string
+		verbose       bool
+		marketStrings []string
+	)
+
+	flag.StringVarP(&configFile, "config", "c", defaultConfig, "Configuration file")
+	flag.BoolVarP(&verbose, "verbose", "v", false, "Prints all debug messages to stdout")
+	flag.StringSliceVarP(&marketStrings, "market", "m", []string{}, "Market to handle, like kraken/btc/usd. This flag can be given multiple times")
+
+	flag.Parse()
+
+	if len(marketStrings) == 0 {
+		fmt.Fprintf(os.Stderr, "%s\n", "Specify at least one --market <exchange>/<base>/<quote>")
 		os.Exit(1)
 	}
 
-	if len(*marketStrings) == 0 {
-		fmt.Fprintf(os.Stderr, "No markets are given, use --market <exchange>/<base>/<quote>\n")
+	cfg, err := config.New(configFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		os.Exit(1)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		fmt.Fprintf(os.Stderr, "%s\n", err)
+		fmt.Fprintf(
+			os.Stderr,
+			"Make sure your config file %s contains credentials, like this:\n%s\n",
+			configFile,
+			(&config.CW{}).Example().String(),
+		)
 		os.Exit(1)
 	}
 
 	statesTracker := NewConnStateTracker()
 
-	markets, marketDescrByID := getMarketDescrs()
+	markets, marketDescrByID := getMarketDescrs(marketStrings)
 
 	app := tview.NewApplication()
 
@@ -65,21 +70,24 @@ func main() {
 		Markets: markets,
 	})
 
-	sc, err := setupStreamClient(markets, mainView, statesTracker)
+	sc, err := setupStreamClient(cfg, markets, mainView, statesTracker)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error setting up stream client: %s", err.Error())
+		fmt.Fprintf(os.Stderr, "Error setting up stream client: %s", err)
 		os.Exit(1)
 	}
 
-	tc, err := setupTradeClient(markets, marketDescrByID, mainView, statesTracker)
+	tc, err := setupTradeClient(cfg, markets, marketDescrByID, mainView, statesTracker)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error setting up trade client: %s", err.Error())
+		fmt.Fprintf(os.Stderr, "Error setting up trade client: %s", err)
 		os.Exit(1)
 	}
 
 	fmt.Println("Starting UI ...")
 	if err := app.SetRoot(mainView.GetUIPrimitive(), true).Run(); err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		sc.Close()
+		tc.Close()
+		os.Exit(1)
 	}
 
 	// We end up here when the user quits the UI
@@ -133,14 +141,14 @@ func getComponentConnectivityStatusMessage(s ConnComponentState) string {
 	return ret
 }
 
-func getMarketDescrs() (markets []MarketDescr, marketDescrByID map[common.MarketID]MarketDescr) {
+func getMarketDescrs(marketStrings []string) (markets []MarketDescr, marketDescrByID map[common.MarketID]MarketDescr) {
 	rest := rest.NewCWRESTClient(nil)
 
 	marketDescrByID = map[common.MarketID]MarketDescr{}
 
 	mchan := make(chan MarketDescr)
 
-	for _, ms := range *marketStrings {
+	for _, ms := range marketStrings {
 		parts := strings.Split(ms, "/")
 		if len(parts) != 3 {
 			fmt.Fprintf(os.Stderr, "Invalid market %q, should contain 3 parts, like \"kraken/btc/usd\"\n", ms)
@@ -166,7 +174,7 @@ func getMarketDescrs() (markets []MarketDescr, marketDescrByID map[common.Market
 		}(parts[0], parts[1], parts[2])
 	}
 
-	for i := 0; i < len(*marketStrings); i++ {
+	for i := 0; i < len(marketStrings); i++ {
 		market := <-mchan
 		markets = append(markets, market)
 		marketDescrByID[market.ID] = market
@@ -178,6 +186,7 @@ func getMarketDescrs() (markets []MarketDescr, marketDescrByID map[common.Market
 }
 
 func setupStreamClient(
+	cfg *config.CW,
 	markets []MarketDescr,
 	mainView *MainView,
 	statesTracker *ConnStateTracker,
@@ -191,9 +200,9 @@ func setupStreamClient(
 
 	sc, err := websocket.NewStreamClient(&websocket.StreamClientParams{
 		WSParams: &websocket.WSParams{
-			URL:       *streamURL,
-			APIKey:    authn.APIKey,
-			SecretKey: authn.SecretKey,
+			URL:       cfg.StreamURL,
+			APIKey:    cfg.APIKey,
+			SecretKey: cfg.SecretKey,
 		},
 
 		Subscriptions: streamSubs,
@@ -244,6 +253,7 @@ func setupStreamClient(
 }
 
 func setupTradeClient(
+	cfg *config.CW,
 	markets []MarketDescr,
 	marketDescrByID map[common.MarketID]MarketDescr,
 	mainView *MainView,
@@ -258,9 +268,9 @@ func setupTradeClient(
 
 	tc, err := websocket.NewTradeClient(&websocket.TradeClientParams{
 		WSParams: &websocket.WSParams{
-			URL:       *brokerURL,
-			APIKey:    authn.APIKey,
-			SecretKey: authn.SecretKey,
+			URL:       cfg.TradeURL,
+			APIKey:    cfg.APIKey,
+			SecretKey: cfg.SecretKey,
 		},
 
 		Subscriptions: tradeSubs,
@@ -279,9 +289,9 @@ func setupTradeClient(
 	})
 
 	// Balances grep flag: Ki49fK
-	// tc.OnBalancesUpdate(func(marketID common.MarketID, balances common.Balances) {
-	// 	mainView.SetMarketBalances(marketID, balances)
-	// })
+	tc.OnBalancesUpdate(func(marketID common.MarketID, balances common.Balances) {
+		mainView.SetMarketBalances(marketID, balances)
+	})
 
 	tc.OnTradesUpdate(func(marketID common.MarketID, trades []common.PrivateTrade) {
 		// If this is the first trades update after we've connected, reset the
@@ -383,47 +393,4 @@ func setupTradeClient(
 	tc.Connect()
 
 	return tc, nil
-}
-
-// getConfigFilenameDefault tries to get user home directory, and returns
-// a path of config file in that directory. If failed to get home directory,
-// then "/etc" is used instead.
-func getConfigFilenameDefault() string {
-	filename := ".cw_trading/config.json"
-	etcPath := "/etc"
-
-	usr, err := user.Current()
-	if err != nil {
-		return path.Join(etcPath, filename)
-	}
-
-	if usr.HomeDir == "" {
-		return path.Join(etcPath, filename)
-	}
-
-	return path.Join(usr.HomeDir, filename)
-}
-
-// printConfigAuthnError prints passed authentication error as well as example
-// copy-pasteable config JSON.
-func printConfigAuthnError(err error) {
-	fmt.Fprintf(os.Stderr, "Error getting authentication from config: %s\n", err.Error())
-
-	exampleConfig := &Config{
-		Authns: []ConfigAuthn{
-			ConfigAuthn{
-				StreamURL: *streamURL,
-				BrokerURL: *brokerURL,
-
-				APIKey:    "my_api_key",
-				SecretKey: "my_secret_key",
-			},
-		},
-	}
-
-	fmt.Fprintf(os.Stderr, "Make sure your config file %s contains credentials, like this:\n", *configFilename)
-
-	encoder := json.NewEncoder(os.Stderr)
-	encoder.SetIndent("", "  ")
-	encoder.Encode(exampleConfig)
 }

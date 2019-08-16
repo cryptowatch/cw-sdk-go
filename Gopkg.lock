@@ -4,7 +4,7 @@
 [[projects]]
   branch = "master"
   digest = "1:8d0b3d8202ad819d93136a60c1102d51beb2de5f1eb743016f297a922f7bc3f9"
-  name = "github.com/cryptowatch/clock"
+  name = "code.cryptowat.ch/clock"
   packages = ["."]
   pruneopts = "UT"
   revision = "e933bd4e0935616b00b03350b97a744710037a2c"
@@ -45,13 +45,9 @@
   version = "v1.1.1"
 
 [[projects]]
-  digest = "1:13256910594a477964a02069ed68b993b723811736b6d782fb2cd05b2162728d"
+  digest = "1:c3d08770928ced2cb5eeb92bfcdef2dc8339d283edf470f7e9643738a3c00129"
   name = "github.com/golang/protobuf"
-  packages = [
-    "jsonpb",
-    "proto",
-    "ptypes/struct",
-  ]
+  packages = ["proto"]
   pruneopts = "UT"
   revision = "9f81198da99b79e14d70ca2c3cc1bbe44c6e69b6"
 
@@ -164,6 +160,14 @@
   version = "v0.3.0"
 
 [[projects]]
+  digest = "1:4d2e5a73dc1500038e504a8d78b986630e3626dc027bc030ba5c75da257cdb96"
+  name = "gopkg.in/yaml.v2"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "51d6538a90f86fe93ac480b35f37b2be17fef232"
+  version = "v2.2.2"
+
+[[projects]]
   digest = "1:06ab53c1af446b0e845b0ab20795ce2a05a434f2cc984716296bb4d682a2bd8a"
   name = "honnef.co/go/tools"
   packages = ["version"]
@@ -175,10 +179,9 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
-    "github.com/cryptowatch/clock",
+    "code.cryptowat.ch/clock",
     "github.com/fatih/color",
     "github.com/gdamore/tcell",
-    "github.com/golang/protobuf/jsonpb",
     "github.com/golang/protobuf/proto",
     "github.com/google/uuid",
     "github.com/gorilla/websocket",
@@ -186,6 +189,7 @@
     "github.com/rivo/tview",
     "github.com/spf13/pflag",
     "github.com/stretchr/testify/assert",
+    "gopkg.in/yaml.v2",
     "honnef.co/go/tools/version",
   ]
   solver-name = "gps-cdcl"

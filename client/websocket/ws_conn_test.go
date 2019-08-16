@@ -16,14 +16,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang/protobuf/proto"
+	"github.com/gorilla/websocket"
+	"github.com/juju/errors"
+
 	"code.cryptowat.ch/cw-sdk-go/client/websocket/internal"
 	pbb "code.cryptowat.ch/cw-sdk-go/proto/broker"
 	pbc "code.cryptowat.ch/cw-sdk-go/proto/client"
 	pbm "code.cryptowat.ch/cw-sdk-go/proto/markets"
 	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
-	"github.com/golang/protobuf/proto"
-	"github.com/gorilla/websocket"
-	"github.com/juju/errors"
 )
 
 type eventType int
@@ -63,8 +64,9 @@ const (
 )
 
 func withTestServer(
-	server serverType,
+	ctx context.Context,
 	t *testing.T,
+	srv serverType,
 	cb func(tp *testServerParams) error,
 ) error {
 	// tx and rx are channels to communicate raw websocket messages with the
@@ -89,7 +91,7 @@ func withTestServer(
 
 	// Create test server with a single root endpoint which upgrades connection
 	// to websocket
-	ts := httptest.NewServer(http.HandlerFunc(getStreamHandler(server, t, rx, tx, connLimiter)))
+	ts := httptest.NewServer(http.HandlerFunc(getStreamHandler(ctx, t, srv, rx, tx, connLimiter)))
 	defer ts.Close()
 
 	// Replace the scheme in url to "ws"
@@ -118,8 +120,9 @@ func withTestServer(
 // there's no way to receive/send stuff from/to a particular connection in case
 // there are many.
 func getStreamHandler(
-	server serverType,
+	pCtx context.Context,
 	t *testing.T,
+	srv serverType,
 	rx chan<- websocketEvent,
 	tx <-chan internal.WebsocketTx,
 	connLimiter chan struct{},
@@ -134,14 +137,13 @@ func getStreamHandler(
 			<-connLimiter
 		}()
 
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(pCtx)
 		defer cancel()
 
 		upgrader := websocket.Upgrader{}
 		ws, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			t.Error(err)
-			return
+			t.Fatal(err)
 		}
 		defer ws.Close()
 
@@ -153,41 +155,48 @@ func getStreamHandler(
 
 		go func() {
 			for {
-				mt, message, err := ws.ReadMessage()
-				var unmarshalledStr string
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					mt, message, err := ws.ReadMessage()
 
-				switch server {
-				case streamServer:
-					var unmarshalled pbs.StreamMessage
-					if err := proto.Unmarshal(message, &unmarshalled); err != nil {
+					var unmarshalledStr string
+					var unmarshalled proto.Message
+
+					switch srv {
+					case streamServer:
+						unmarshalled = &pbs.StreamMessage{}
+					case brokerServer:
+						unmarshalled = &pbb.BrokerUpdateMessage{}
+					}
+
+					if err := proto.Unmarshal(message, unmarshalled); err != nil {
 						unmarshalledStr = fmt.Sprintf("failed to unmarshal: %s", err)
 					} else {
-						unmarshalledStr = proto.CompactTextString(&unmarshalled)
+						unmarshalledStr = proto.CompactTextString(unmarshalled)
 					}
-				case brokerServer:
-					var unmarshalled pbb.BrokerUpdateMessage
-					if err := proto.Unmarshal(message, &unmarshalled); err != nil {
-						unmarshalledStr = fmt.Sprintf("failed to unmarshal: %s", err)
-					} else {
-						unmarshalledStr = proto.CompactTextString(&unmarshalled)
+
+					if err := ctx.Err(); err != nil {
+						return
 					}
-				}
 
-				t.Logf("websocket rx: type=%d, data=%+v (%s), err=%v", mt, message, unmarshalledStr, err)
+					t.Logf("websocket rx: type=%d, data=%+v (%s), err=%v", mt, message, unmarshalledStr, err)
 
-				rx <- websocketEvent{
-					eventType: eventTypeMsg,
+					rx <- websocketEvent{
+						eventType: eventTypeMsg,
 
-					messageType: mt,
-					data:        message,
-					err:         err,
-				}
+						messageType: mt,
+						data:        message,
+						err:         err,
+					}
 
-				if err != nil {
-					t.Logf("breaking out of Rx loop")
-					// Signal tx loop to exit as well
-					cancel()
-					break
+					if err != nil {
+						cancel()
+						t.Logf("rx loop err: %v", err)
+						t.Logf("breaking out of Rx loop")
+						return
+					}
 				}
 			}
 		}()
@@ -197,23 +206,24 @@ func getStreamHandler(
 			select {
 			case msg := <-tx:
 				var unmarshalledStr string
+				var unmarshalled proto.Message
 
-				switch server {
+				switch srv {
 				case streamServer:
-					var unmarshalled pbs.StreamMessage
-					if err := proto.Unmarshal(msg.Data, &unmarshalled); err != nil {
-						unmarshalledStr = fmt.Sprintf("failed to unmarshal: %s", err)
-					} else {
-						unmarshalledStr = proto.CompactTextString(&unmarshalled)
-					}
+					unmarshalled = &pbs.StreamMessage{}
 
 				case brokerServer:
-					var unmarshalled pbb.BrokerUpdateMessage
-					if err := proto.Unmarshal(msg.Data, &unmarshalled); err != nil {
-						unmarshalledStr = fmt.Sprintf("failed to unmarshal: %s", err)
-					} else {
-						unmarshalledStr = proto.CompactTextString(&unmarshalled)
-					}
+					unmarshalled = &pbb.BrokerUpdateMessage{}
+				}
+
+				if err := proto.Unmarshal(msg.Data, unmarshalled); err != nil {
+					unmarshalledStr = fmt.Sprintf("failed to unmarshal: %s", err)
+				} else {
+					unmarshalledStr = proto.CompactTextString(unmarshalled)
+				}
+
+				if err := ctx.Err(); err != nil {
+					return
 				}
 
 				t.Logf("websocket tx: type=%d, data=%+v (%s)", msg.MessageType, msg.Data, unmarshalledStr)
@@ -223,6 +233,7 @@ func getStreamHandler(
 					break
 				}
 			case <-ctx.Done():
+				cancel()
 				t.Logf("breaking out of Tx loop")
 				break txLoop
 			}
@@ -232,7 +243,10 @@ func getStreamHandler(
 }
 
 func TestWsConn(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		// marketRx is a channel to which all MarketUpdateMessage's received by
 		// the client will be delivered.
 		// TODO test the generic handler
@@ -451,14 +465,17 @@ func TestWsConn(t *testing.T) {
 		return nil
 	})
 	if err != nil {
+		cancel()
 		t.Log(errors.ErrorStack(err))
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 }
 
 func TestStateListeners(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		c, err := NewStreamClient(&StreamClientParams{
 			WSParams: &WSParams{
 				URL:       tp.url,
@@ -774,14 +791,17 @@ func TestStateListeners(t *testing.T) {
 		return nil
 	})
 	if err != nil {
+		cancel()
 		t.Log(errors.ErrorStack(err))
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 }
 
 func TestAuthnErrors(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		client, err := NewStreamClient(&StreamClientParams{
 			WSParams: &WSParams{
 				URL:       tp.url,
@@ -879,10 +899,11 @@ func TestAuthnErrors(t *testing.T) {
 
 		return nil
 	})
+	cancel()
 	if err != nil {
+		cancel()
 		t.Log(errors.ErrorStack(err))
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 }
 
@@ -1150,7 +1171,10 @@ var testSubscriptions = []Subscription{
 // testWriteToNonConnected ensures that sending to a non-established StreamConn
 // results in an error
 func testWriteToNonConnected(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		conn, err := newWsConn(
 			&WSParams{
 				URL: tp.url,
@@ -1169,15 +1193,18 @@ func testWriteToNonConnected(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Error(err)
-		return
+		cancel()
+		t.Fatal(err)
 	}
 }
 
 // testConnectConnected ensures that calling Connect on a connection with
 // active connection loop results in an error
 func testConnectConnected(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		c, err := newWsConn(
 			&WSParams{
 				URL: tp.url,
@@ -1200,15 +1227,18 @@ func testConnectConnected(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Error(err)
-		return
+		cancel()
+		t.Fatal(err)
 	}
 }
 
 // testConnectConnected ensures that calling Connect on a connection with
 // active connection loop results in an error
 func testCloseClosed(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		c, err := newWsConn(
 			&WSParams{
 				URL: tp.url,
@@ -1227,13 +1257,16 @@ func testCloseClosed(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Error(err)
-		return
+		cancel()
+		t.Fatal(err)
 	}
 }
 
 func testSubscribe(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		conn, err := newWsConn(
 			&WSParams{
 				URL:       tp.url,
@@ -1286,13 +1319,16 @@ func testSubscribe(t *testing.T) {
 	})
 
 	if err != nil {
-		t.Error(err)
-		return
+		cancel()
+		t.Fatal(err)
 	}
 }
 
 func testDefaultURL(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		conn, err := newWsConn(&WSParams{}, &wsConnParamsInternal{})
 		if err != nil {
 			return errors.Trace(err)
@@ -1305,13 +1341,16 @@ func testDefaultURL(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Error(err)
-		return
+		cancel()
+		t.Fatal(err)
 	}
 }
 
 func testDefaultOptions(t *testing.T) {
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		conn, err := newWsConn(&WSParams{}, &wsConnParamsInternal{})
 		if err != nil {
 			return errors.Trace(err)
@@ -1328,7 +1367,7 @@ func testDefaultOptions(t *testing.T) {
 		return nil
 	})
 	if err != nil {
-		t.Error(err)
-		return
+		cancel()
+		t.Fatal(err)
 	}
 }

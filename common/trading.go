@@ -67,16 +67,14 @@ type FundingType int32
 const (
 	SpotFunding FundingType = iota
 	MarginFunding
-
-	// FundingTypeCnt is the number of funding types, which is used internally for
-	// allocating memory.
-	FundingTypeCnt
+	FuturesFunding
 )
 
 // FundingTypeNames contains human-readable names for FundingType.
 var FundingTypeNames = map[FundingType]string{
-	SpotFunding:   "spot",
-	MarginFunding: "margin",
+	SpotFunding:    "spot",
+	MarginFunding:  "margin",
+	FuturesFunding: "futures",
 }
 
 // PriceParam is used as input for an Order.
@@ -206,4 +204,46 @@ type Balances map[FundingType][]Balance
 type Balance struct {
 	Currency string
 	Amount   string
+
+	// AllBalances grep flag: Ai33fA
+	// Asset     string
+	// Symbol    string
+	// Total     string
+	// Available string
 }
+
+// AllBalances grep flag: Ai33fA
+// ExchangeBalances holds information about balances across all active exchanges.
+// type ExchangeBalances map[string]ExchangeBalance
+
+// AllBalances grep flag: Ai33fA
+// func (xb ExchangeBalances) Copy() ExchangeBalances {
+// 	result := make(ExchangeBalances, len(xb))
+
+// 	for name, bal := range xb {
+// 		balCopy := ExchangeBalance{
+// 			Name:     bal.Name,
+// 			Error:    bal.Error,
+// 			Balances: make(Balances, len(bal.Balances)),
+// 		}
+
+// 		for ft, bs := range bal.Balances {
+// 			bsCopy := make([]Balance, len(bs))
+// 			copy(bsCopy, bs)
+
+// 			balCopy.Balances[ft] = bsCopy
+// 		}
+
+// 		result[name] = balCopy
+// 	}
+
+// 	return result
+// }
+
+// AllBalances grep flag: Ai33fA
+// ExchangeBalance holds information about balances on an exchange.
+// type ExchangeBalance struct {
+// 	Name     string
+// 	Error    string
+// 	Balances Balances
+// }

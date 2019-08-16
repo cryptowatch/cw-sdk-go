@@ -20,6 +20,35 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
+type WebAuthenticationResult_Status int32
+
+const (
+	WebAuthenticationResult_UNKNOWN         WebAuthenticationResult_Status = 0
+	WebAuthenticationResult_AUTHENTICATED   WebAuthenticationResult_Status = 1
+	WebAuthenticationResult_INVALID_SESSION WebAuthenticationResult_Status = 2
+	WebAuthenticationResult_MFA_REQUIRED    WebAuthenticationResult_Status = 3
+)
+
+var WebAuthenticationResult_Status_name = map[int32]string{
+	0: "UNKNOWN",
+	1: "AUTHENTICATED",
+	2: "INVALID_SESSION",
+	3: "MFA_REQUIRED",
+}
+var WebAuthenticationResult_Status_value = map[string]int32{
+	"UNKNOWN":         0,
+	"AUTHENTICATED":   1,
+	"INVALID_SESSION": 2,
+	"MFA_REQUIRED":    3,
+}
+
+func (x WebAuthenticationResult_Status) String() string {
+	return proto.EnumName(WebAuthenticationResult_Status_name, int32(x))
+}
+func (WebAuthenticationResult_Status) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor_client_749f7fa9535603b9, []int{3, 0}
+}
+
 type APIAuthenticationMessage_Source int32
 
 const (
@@ -52,7 +81,7 @@ func (x APIAuthenticationMessage_Source) String() string {
 	return proto.EnumName(APIAuthenticationMessage_Source_name, int32(x))
 }
 func (APIAuthenticationMessage_Source) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{7, 0}
+	return fileDescriptor_client_749f7fa9535603b9, []int{9, 0}
 }
 
 // ClientMessage is a wrapper message used to describe the supplied client message
@@ -64,6 +93,7 @@ type ClientMessage struct {
 	//	*ClientMessage_Unsubscribe
 	//	*ClientMessage_WebAuthentication
 	//	*ClientMessage_ApiAuthentication
+	//	*ClientMessage_ClientSession
 	Body                 isClientMessage_Body `protobuf_oneof:"body"`
 	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
 	XXX_unrecognized     []byte               `json:"-"`
@@ -74,7 +104,7 @@ func (m *ClientMessage) Reset()         { *m = ClientMessage{} }
 func (m *ClientMessage) String() string { return proto.CompactTextString(m) }
 func (*ClientMessage) ProtoMessage()    {}
 func (*ClientMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{0}
+	return fileDescriptor_client_749f7fa9535603b9, []int{0}
 }
 func (m *ClientMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -124,12 +154,16 @@ type ClientMessage_WebAuthentication struct {
 type ClientMessage_ApiAuthentication struct {
 	ApiAuthentication *APIAuthenticationMessage `protobuf:"bytes,5,opt,name=apiAuthentication,proto3,oneof"`
 }
+type ClientMessage_ClientSession struct {
+	ClientSession *ClientSessionMessage `protobuf:"bytes,6,opt,name=clientSession,proto3,oneof"`
+}
 
 func (*ClientMessage_Identification) isClientMessage_Body()    {}
 func (*ClientMessage_Subscribe) isClientMessage_Body()         {}
 func (*ClientMessage_Unsubscribe) isClientMessage_Body()       {}
 func (*ClientMessage_WebAuthentication) isClientMessage_Body() {}
 func (*ClientMessage_ApiAuthentication) isClientMessage_Body() {}
+func (*ClientMessage_ClientSession) isClientMessage_Body()     {}
 
 func (m *ClientMessage) GetBody() isClientMessage_Body {
 	if m != nil {
@@ -173,6 +207,13 @@ func (m *ClientMessage) GetApiAuthentication() *APIAuthenticationMessage {
 	return nil
 }
 
+func (m *ClientMessage) GetClientSession() *ClientSessionMessage {
+	if x, ok := m.GetBody().(*ClientMessage_ClientSession); ok {
+		return x.ClientSession
+	}
+	return nil
+}
+
 // XXX_OneofFuncs is for the internal use of the proto package.
 func (*ClientMessage) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
 	return _ClientMessage_OneofMarshaler, _ClientMessage_OneofUnmarshaler, _ClientMessage_OneofSizer, []interface{}{
@@ -181,6 +222,7 @@ func (*ClientMessage) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer)
 		(*ClientMessage_Unsubscribe)(nil),
 		(*ClientMessage_WebAuthentication)(nil),
 		(*ClientMessage_ApiAuthentication)(nil),
+		(*ClientMessage_ClientSession)(nil),
 	}
 }
 
@@ -211,6 +253,11 @@ func _ClientMessage_OneofMarshaler(msg proto.Message, b *proto.Buffer) error {
 	case *ClientMessage_ApiAuthentication:
 		_ = b.EncodeVarint(5<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.ApiAuthentication); err != nil {
+			return err
+		}
+	case *ClientMessage_ClientSession:
+		_ = b.EncodeVarint(6<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.ClientSession); err != nil {
 			return err
 		}
 	case nil:
@@ -263,6 +310,14 @@ func _ClientMessage_OneofUnmarshaler(msg proto.Message, tag, wire int, b *proto.
 		err := b.DecodeMessage(msg)
 		m.Body = &ClientMessage_ApiAuthentication{msg}
 		return true, err
+	case 6: // body.clientSession
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(ClientSessionMessage)
+		err := b.DecodeMessage(msg)
+		m.Body = &ClientMessage_ClientSession{msg}
+		return true, err
 	default:
 		return false, nil
 	}
@@ -297,6 +352,11 @@ func _ClientMessage_OneofSizer(msg proto.Message) (n int) {
 		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
+	case *ClientMessage_ClientSession:
+		s := proto.Size(x.ClientSession)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
 	case nil:
 	default:
 		panic(fmt.Sprintf("proto: unexpected type %T in oneof", x))
@@ -307,21 +367,22 @@ func _ClientMessage_OneofSizer(msg proto.Message) (n int) {
 // ClientIdentificationMessage is the first message sent is from the client to
 // the server, identifying itself and the subscriptions it desires.
 type ClientIdentificationMessage struct {
-	Useragent            string   `protobuf:"bytes,1,opt,name=useragent,proto3" json:"useragent,omitempty"`
-	Revision             string   `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
-	Integration          string   `protobuf:"bytes,3,opt,name=integration,proto3" json:"integration,omitempty"`
-	Locale               string   `protobuf:"bytes,4,opt,name=locale,proto3" json:"locale,omitempty"`
-	Subscriptions        []string `protobuf:"bytes,5,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"`
-	XXX_NoUnkeyedLiteral struct{} `json:"-"`
-	XXX_unrecognized     []byte   `json:"-"`
-	XXX_sizecache        int32    `json:"-"`
+	Useragent            string                `protobuf:"bytes,1,opt,name=useragent,proto3" json:"useragent,omitempty"`
+	Revision             string                `protobuf:"bytes,2,opt,name=revision,proto3" json:"revision,omitempty"`
+	Integration          string                `protobuf:"bytes,3,opt,name=integration,proto3" json:"integration,omitempty"`
+	Locale               string                `protobuf:"bytes,4,opt,name=locale,proto3" json:"locale,omitempty"`
+	Subscriptions        []string              `protobuf:"bytes,5,rep,name=subscriptions,proto3" json:"subscriptions,omitempty"` // Deprecated: Do not use.
+	ClientSubscriptions  []*ClientSubscription `protobuf:"bytes,6,rep,name=clientSubscriptions,proto3" json:"clientSubscriptions,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}              `json:"-"`
+	XXX_unrecognized     []byte                `json:"-"`
+	XXX_sizecache        int32                 `json:"-"`
 }
 
 func (m *ClientIdentificationMessage) Reset()         { *m = ClientIdentificationMessage{} }
 func (m *ClientIdentificationMessage) String() string { return proto.CompactTextString(m) }
 func (*ClientIdentificationMessage) ProtoMessage()    {}
 func (*ClientIdentificationMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{1}
+	return fileDescriptor_client_749f7fa9535603b9, []int{1}
 }
 func (m *ClientIdentificationMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -378,9 +439,17 @@ func (m *ClientIdentificationMessage) GetLocale() string {
 	return ""
 }
 
+// Deprecated: Do not use.
 func (m *ClientIdentificationMessage) GetSubscriptions() []string {
 	if m != nil {
 		return m.Subscriptions
+	}
+	return nil
+}
+
+func (m *ClientIdentificationMessage) GetClientSubscriptions() []*ClientSubscription {
+	if m != nil {
+		return m.ClientSubscriptions
 	}
 	return nil
 }
@@ -399,7 +468,7 @@ func (m *WebAuthenticationMessage) Reset()         { *m = WebAuthenticationMessa
 func (m *WebAuthenticationMessage) String() string { return proto.CompactTextString(m) }
 func (*WebAuthenticationMessage) ProtoMessage()    {}
 func (*WebAuthenticationMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{2}
+	return fileDescriptor_client_749f7fa9535603b9, []int{2}
 }
 func (m *WebAuthenticationMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -456,6 +525,53 @@ func (m *WebAuthenticationMessage) GetAccessList() []string {
 	return nil
 }
 
+type WebAuthenticationResult struct {
+	Status               WebAuthenticationResult_Status `protobuf:"varint,1,opt,name=status,proto3,enum=ProtobufClient.WebAuthenticationResult_Status" json:"status,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}                       `json:"-"`
+	XXX_unrecognized     []byte                         `json:"-"`
+	XXX_sizecache        int32                          `json:"-"`
+}
+
+func (m *WebAuthenticationResult) Reset()         { *m = WebAuthenticationResult{} }
+func (m *WebAuthenticationResult) String() string { return proto.CompactTextString(m) }
+func (*WebAuthenticationResult) ProtoMessage()    {}
+func (*WebAuthenticationResult) Descriptor() ([]byte, []int) {
+	return fileDescriptor_client_749f7fa9535603b9, []int{3}
+}
+func (m *WebAuthenticationResult) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *WebAuthenticationResult) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_WebAuthenticationResult.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (dst *WebAuthenticationResult) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_WebAuthenticationResult.Merge(dst, src)
+}
+func (m *WebAuthenticationResult) XXX_Size() int {
+	return m.Size()
+}
+func (m *WebAuthenticationResult) XXX_DiscardUnknown() {
+	xxx_messageInfo_WebAuthenticationResult.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_WebAuthenticationResult proto.InternalMessageInfo
+
+func (m *WebAuthenticationResult) GetStatus() WebAuthenticationResult_Status {
+	if m != nil {
+		return m.Status
+	}
+	return WebAuthenticationResult_UNKNOWN
+}
+
 type TradeSessionAuth struct {
 	ApiKey               string   `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
 	ApiSecret            string   `protobuf:"bytes,2,opt,name=api_secret,json=apiSecret,proto3" json:"api_secret,omitempty"`
@@ -470,7 +586,7 @@ func (m *TradeSessionAuth) Reset()         { *m = TradeSessionAuth{} }
 func (m *TradeSessionAuth) String() string { return proto.CompactTextString(m) }
 func (*TradeSessionAuth) ProtoMessage()    {}
 func (*TradeSessionAuth) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{3}
+	return fileDescriptor_client_749f7fa9535603b9, []int{4}
 }
 func (m *TradeSessionAuth) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -540,7 +656,7 @@ func (m *TradeSubscription) Reset()         { *m = TradeSubscription{} }
 func (m *TradeSubscription) String() string { return proto.CompactTextString(m) }
 func (*TradeSubscription) ProtoMessage()    {}
 func (*TradeSubscription) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{4}
+	return fileDescriptor_client_749f7fa9535603b9, []int{5}
 }
 func (m *TradeSubscription) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -594,7 +710,7 @@ func (m *StreamSubscription) Reset()         { *m = StreamSubscription{} }
 func (m *StreamSubscription) String() string { return proto.CompactTextString(m) }
 func (*StreamSubscription) ProtoMessage()    {}
 func (*StreamSubscription) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{5}
+	return fileDescriptor_client_749f7fa9535603b9, []int{6}
 }
 func (m *StreamSubscription) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -630,10 +746,50 @@ func (m *StreamSubscription) GetResource() string {
 	return ""
 }
 
+type TriggerSubscription struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *TriggerSubscription) Reset()         { *m = TriggerSubscription{} }
+func (m *TriggerSubscription) String() string { return proto.CompactTextString(m) }
+func (*TriggerSubscription) ProtoMessage()    {}
+func (*TriggerSubscription) Descriptor() ([]byte, []int) {
+	return fileDescriptor_client_749f7fa9535603b9, []int{7}
+}
+func (m *TriggerSubscription) XXX_Unmarshal(b []byte) error {
+	return m.Unmarshal(b)
+}
+func (m *TriggerSubscription) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	if deterministic {
+		return xxx_messageInfo_TriggerSubscription.Marshal(b, m, deterministic)
+	} else {
+		b = b[:cap(b)]
+		n, err := m.MarshalTo(b)
+		if err != nil {
+			return nil, err
+		}
+		return b[:n], nil
+	}
+}
+func (dst *TriggerSubscription) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_TriggerSubscription.Merge(dst, src)
+}
+func (m *TriggerSubscription) XXX_Size() int {
+	return m.Size()
+}
+func (m *TriggerSubscription) XXX_DiscardUnknown() {
+	xxx_messageInfo_TriggerSubscription.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_TriggerSubscription proto.InternalMessageInfo
+
 type ClientSubscription struct {
 	// Types that are valid to be assigned to Body:
 	//	*ClientSubscription_StreamSubscription
 	//	*ClientSubscription_TradeSubscription
+	//	*ClientSubscription_TriggerSubscription
 	Body                 isClientSubscription_Body `protobuf_oneof:"body"`
 	XXX_NoUnkeyedLiteral struct{}                  `json:"-"`
 	XXX_unrecognized     []byte                    `json:"-"`
@@ -644,7 +800,7 @@ func (m *ClientSubscription) Reset()         { *m = ClientSubscription{} }
 func (m *ClientSubscription) String() string { return proto.CompactTextString(m) }
 func (*ClientSubscription) ProtoMessage()    {}
 func (*ClientSubscription) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{6}
+	return fileDescriptor_client_749f7fa9535603b9, []int{8}
 }
 func (m *ClientSubscription) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -685,9 +841,13 @@ type ClientSubscription_StreamSubscription struct {
 type ClientSubscription_TradeSubscription struct {
 	TradeSubscription *TradeSubscription `protobuf:"bytes,2,opt,name=trade_subscription,json=tradeSubscription,proto3,oneof"`
 }
+type ClientSubscription_TriggerSubscription struct {
+	TriggerSubscription *TriggerSubscription `protobuf:"bytes,3,opt,name=trigger_subscription,json=triggerSubscription,proto3,oneof"`
+}
 
-func (*ClientSubscription_StreamSubscription) isClientSubscription_Body() {}
-func (*ClientSubscription_TradeSubscription) isClientSubscription_Body()  {}
+func (*ClientSubscription_StreamSubscription) isClientSubscription_Body()  {}
+func (*ClientSubscription_TradeSubscription) isClientSubscription_Body()   {}
+func (*ClientSubscription_TriggerSubscription) isClientSubscription_Body() {}
 
 func (m *ClientSubscription) GetBody() isClientSubscription_Body {
 	if m != nil {
@@ -710,11 +870,19 @@ func (m *ClientSubscription) GetTradeSubscription() *TradeSubscription {
 	return nil
 }
 
+func (m *ClientSubscription) GetTriggerSubscription() *TriggerSubscription {
+	if x, ok := m.GetBody().(*ClientSubscription_TriggerSubscription); ok {
+		return x.TriggerSubscription
+	}
+	return nil
+}
+
 // XXX_OneofFuncs is for the internal use of the proto package.
 func (*ClientSubscription) XXX_OneofFuncs() (func(msg proto.Message, b *proto.Buffer) error, func(msg proto.Message, tag, wire int, b *proto.Buffer) (bool, error), func(msg proto.Message) (n int), []interface{}) {
 	return _ClientSubscription_OneofMarshaler, _ClientSubscription_OneofUnmarshaler, _ClientSubscription_OneofSizer, []interface{}{
 		(*ClientSubscription_StreamSubscription)(nil),
 		(*ClientSubscription_TradeSubscription)(nil),
+		(*ClientSubscription_TriggerSubscription)(nil),
 	}
 }
 
@@ -730,6 +898,11 @@ func _ClientSubscription_OneofMarshaler(msg proto.Message, b *proto.Buffer) erro
 	case *ClientSubscription_TradeSubscription:
 		_ = b.EncodeVarint(2<<3 | proto.WireBytes)
 		if err := b.EncodeMessage(x.TradeSubscription); err != nil {
+			return err
+		}
+	case *ClientSubscription_TriggerSubscription:
+		_ = b.EncodeVarint(3<<3 | proto.WireBytes)
+		if err := b.EncodeMessage(x.TriggerSubscription); err != nil {
 			return err
 		}
 	case nil:
@@ -758,6 +931,14 @@ func _ClientSubscription_OneofUnmarshaler(msg proto.Message, tag, wire int, b *p
 		err := b.DecodeMessage(msg)
 		m.Body = &ClientSubscription_TradeSubscription{msg}
 		return true, err
+	case 3: // body.trigger_subscription
+		if wire != proto.WireBytes {
+			return true, proto.ErrInternalBadWireType
+		}
+		msg := new(TriggerSubscription)
+		err := b.DecodeMessage(msg)
+		m.Body = &ClientSubscription_TriggerSubscription{msg}
+		return true, err
 	default:
 		return false, nil
 	}
@@ -774,6 +955,11 @@ func _ClientSubscription_OneofSizer(msg proto.Message) (n int) {
 		n += s
 	case *ClientSubscription_TradeSubscription:
 		s := proto.Size(x.TradeSubscription)
+		n += 1 // tag and wire
+		n += proto.SizeVarint(uint64(s))
+		n += s
+	case *ClientSubscription_TriggerSubscription:
+		s := proto.Size(x.TriggerSubscription)
 		n += 1 // tag and wire
 		n += proto.SizeVarint(uint64(s))
 		n += s
@@ -801,7 +987,7 @@ func (m *APIAuthenticationMessage) Reset()         { *m = APIAuthenticationMessa
 func (m *APIAuthenticationMessage) String() string { return proto.CompactTextString(m) }
 func (*APIAuthenticationMessage) ProtoMessage()    {}
 func (*APIAuthenticationMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{7}
+	return fileDescriptor_client_749f7fa9535603b9, []int{9}
 }
 func (m *APIAuthenticationMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -885,6 +1071,7 @@ type ClientSessionMessage struct {
 	//	*ClientSessionMessage_Session_
 	//	*ClientSessionMessage_AnonymousTradingSession_
 	SessionConfig        isClientSessionMessage_SessionConfig `protobuf_oneof:"SessionConfig"`
+	Identification       *ClientIdentificationMessage         `protobuf:"bytes,3,opt,name=identification,proto3" json:"identification,omitempty"`
 	XXX_NoUnkeyedLiteral struct{}                             `json:"-"`
 	XXX_unrecognized     []byte                               `json:"-"`
 	XXX_sizecache        int32                                `json:"-"`
@@ -894,7 +1081,7 @@ func (m *ClientSessionMessage) Reset()         { *m = ClientSessionMessage{} }
 func (m *ClientSessionMessage) String() string { return proto.CompactTextString(m) }
 func (*ClientSessionMessage) ProtoMessage()    {}
 func (*ClientSessionMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{8}
+	return fileDescriptor_client_749f7fa9535603b9, []int{10}
 }
 func (m *ClientSessionMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -956,6 +1143,13 @@ func (m *ClientSessionMessage) GetSession() *ClientSessionMessage_Session {
 func (m *ClientSessionMessage) GetAnonymousTradingSession() *ClientSessionMessage_AnonymousTradingSession {
 	if x, ok := m.GetSessionConfig().(*ClientSessionMessage_AnonymousTradingSession_); ok {
 		return x.AnonymousTradingSession
+	}
+	return nil
+}
+
+func (m *ClientSessionMessage) GetIdentification() *ClientIdentificationMessage {
+	if m != nil {
+		return m.Identification
 	}
 	return nil
 }
@@ -1048,7 +1242,7 @@ func (m *ClientSessionMessage_Session) Reset()         { *m = ClientSessionMessa
 func (m *ClientSessionMessage_Session) String() string { return proto.CompactTextString(m) }
 func (*ClientSessionMessage_Session) ProtoMessage()    {}
 func (*ClientSessionMessage_Session) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{8, 0}
+	return fileDescriptor_client_749f7fa9535603b9, []int{10, 0}
 }
 func (m *ClientSessionMessage_Session) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1122,7 +1316,7 @@ func (m *ClientSessionMessage_AnonymousTradingSession) String() string {
 }
 func (*ClientSessionMessage_AnonymousTradingSession) ProtoMessage() {}
 func (*ClientSessionMessage_AnonymousTradingSession) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{8, 1}
+	return fileDescriptor_client_749f7fa9535603b9, []int{10, 1}
 }
 func (m *ClientSessionMessage_AnonymousTradingSession) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1186,7 +1380,7 @@ func (m *ClientSubscribeMessage) Reset()         { *m = ClientSubscribeMessage{}
 func (m *ClientSubscribeMessage) String() string { return proto.CompactTextString(m) }
 func (*ClientSubscribeMessage) ProtoMessage()    {}
 func (*ClientSubscribeMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{9}
+	return fileDescriptor_client_749f7fa9535603b9, []int{11}
 }
 func (m *ClientSubscribeMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1244,7 +1438,7 @@ func (m *ClientUnsubscribeMessage) Reset()         { *m = ClientUnsubscribeMessa
 func (m *ClientUnsubscribeMessage) String() string { return proto.CompactTextString(m) }
 func (*ClientUnsubscribeMessage) ProtoMessage()    {}
 func (*ClientUnsubscribeMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_client_5194168a5f918a79, []int{10}
+	return fileDescriptor_client_749f7fa9535603b9, []int{12}
 }
 func (m *ClientUnsubscribeMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1292,9 +1486,11 @@ func init() {
 	proto.RegisterType((*ClientMessage)(nil), "ProtobufClient.ClientMessage")
 	proto.RegisterType((*ClientIdentificationMessage)(nil), "ProtobufClient.ClientIdentificationMessage")
 	proto.RegisterType((*WebAuthenticationMessage)(nil), "ProtobufClient.WebAuthenticationMessage")
+	proto.RegisterType((*WebAuthenticationResult)(nil), "ProtobufClient.WebAuthenticationResult")
 	proto.RegisterType((*TradeSessionAuth)(nil), "ProtobufClient.TradeSessionAuth")
 	proto.RegisterType((*TradeSubscription)(nil), "ProtobufClient.TradeSubscription")
 	proto.RegisterType((*StreamSubscription)(nil), "ProtobufClient.StreamSubscription")
+	proto.RegisterType((*TriggerSubscription)(nil), "ProtobufClient.TriggerSubscription")
 	proto.RegisterType((*ClientSubscription)(nil), "ProtobufClient.ClientSubscription")
 	proto.RegisterType((*APIAuthenticationMessage)(nil), "ProtobufClient.APIAuthenticationMessage")
 	proto.RegisterType((*ClientSessionMessage)(nil), "ProtobufClient.ClientSessionMessage")
@@ -1302,6 +1498,7 @@ func init() {
 	proto.RegisterType((*ClientSessionMessage_AnonymousTradingSession)(nil), "ProtobufClient.ClientSessionMessage.AnonymousTradingSession")
 	proto.RegisterType((*ClientSubscribeMessage)(nil), "ProtobufClient.ClientSubscribeMessage")
 	proto.RegisterType((*ClientUnsubscribeMessage)(nil), "ProtobufClient.ClientUnsubscribeMessage")
+	proto.RegisterEnum("ProtobufClient.WebAuthenticationResult_Status", WebAuthenticationResult_Status_name, WebAuthenticationResult_Status_value)
 	proto.RegisterEnum("ProtobufClient.APIAuthenticationMessage_Source", APIAuthenticationMessage_Source_name, APIAuthenticationMessage_Source_value)
 }
 func (m *ClientMessage) Marshal() (dAtA []byte, err error) {
@@ -1402,6 +1599,20 @@ func (m *ClientMessage_ApiAuthentication) MarshalTo(dAtA []byte) (int, error) {
 	}
 	return i, nil
 }
+func (m *ClientMessage_ClientSession) MarshalTo(dAtA []byte) (int, error) {
+	i := 0
+	if m.ClientSession != nil {
+		dAtA[i] = 0x32
+		i++
+		i = encodeVarintClient(dAtA, i, uint64(m.ClientSession.Size()))
+		n7, err := m.ClientSession.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n7
+	}
+	return i, nil
+}
 func (m *ClientIdentificationMessage) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -1456,6 +1667,18 @@ func (m *ClientIdentificationMessage) MarshalTo(dAtA []byte) (int, error) {
 			i += copy(dAtA[i:], s)
 		}
 	}
+	if len(m.ClientSubscriptions) > 0 {
+		for _, msg := range m.ClientSubscriptions {
+			dAtA[i] = 0x32
+			i++
+			i = encodeVarintClient(dAtA, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(dAtA[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
+		}
+	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
 	}
@@ -1481,11 +1704,11 @@ func (m *WebAuthenticationMessage) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintClient(dAtA, i, uint64(m.Identification.Size()))
-		n7, err := m.Identification.MarshalTo(dAtA[i:])
+		n8, err := m.Identification.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n7
+		i += n8
 	}
 	if len(m.Token) > 0 {
 		dAtA[i] = 0x12
@@ -1513,6 +1736,32 @@ func (m *WebAuthenticationMessage) MarshalTo(dAtA []byte) (int, error) {
 			i++
 			i += copy(dAtA[i:], s)
 		}
+	}
+	if m.XXX_unrecognized != nil {
+		i += copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return i, nil
+}
+
+func (m *WebAuthenticationResult) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *WebAuthenticationResult) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.Status != 0 {
+		dAtA[i] = 0x8
+		i++
+		i = encodeVarintClient(dAtA, i, uint64(m.Status))
 	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
@@ -1590,11 +1839,11 @@ func (m *TradeSubscription) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintClient(dAtA, i, uint64(m.Auth.Size()))
-		n8, err := m.Auth.MarshalTo(dAtA[i:])
+		n9, err := m.Auth.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n8
+		i += n9
 	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
@@ -1629,6 +1878,27 @@ func (m *StreamSubscription) MarshalTo(dAtA []byte) (int, error) {
 	return i, nil
 }
 
+func (m *TriggerSubscription) Marshal() (dAtA []byte, err error) {
+	size := m.Size()
+	dAtA = make([]byte, size)
+	n, err := m.MarshalTo(dAtA)
+	if err != nil {
+		return nil, err
+	}
+	return dAtA[:n], nil
+}
+
+func (m *TriggerSubscription) MarshalTo(dAtA []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		i += copy(dAtA[i:], m.XXX_unrecognized)
+	}
+	return i, nil
+}
+
 func (m *ClientSubscription) Marshal() (dAtA []byte, err error) {
 	size := m.Size()
 	dAtA = make([]byte, size)
@@ -1645,11 +1915,11 @@ func (m *ClientSubscription) MarshalTo(dAtA []byte) (int, error) {
 	var l int
 	_ = l
 	if m.Body != nil {
-		nn9, err := m.Body.MarshalTo(dAtA[i:])
+		nn10, err := m.Body.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += nn9
+		i += nn10
 	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
@@ -1663,11 +1933,11 @@ func (m *ClientSubscription_StreamSubscription) MarshalTo(dAtA []byte) (int, err
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintClient(dAtA, i, uint64(m.StreamSubscription.Size()))
-		n10, err := m.StreamSubscription.MarshalTo(dAtA[i:])
+		n11, err := m.StreamSubscription.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n10
+		i += n11
 	}
 	return i, nil
 }
@@ -1677,11 +1947,25 @@ func (m *ClientSubscription_TradeSubscription) MarshalTo(dAtA []byte) (int, erro
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintClient(dAtA, i, uint64(m.TradeSubscription.Size()))
-		n11, err := m.TradeSubscription.MarshalTo(dAtA[i:])
+		n12, err := m.TradeSubscription.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n11
+		i += n12
+	}
+	return i, nil
+}
+func (m *ClientSubscription_TriggerSubscription) MarshalTo(dAtA []byte) (int, error) {
+	i := 0
+	if m.TriggerSubscription != nil {
+		dAtA[i] = 0x1a
+		i++
+		i = encodeVarintClient(dAtA, i, uint64(m.TriggerSubscription.Size()))
+		n13, err := m.TriggerSubscription.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n13
 	}
 	return i, nil
 }
@@ -1778,11 +2062,21 @@ func (m *ClientSessionMessage) MarshalTo(dAtA []byte) (int, error) {
 	var l int
 	_ = l
 	if m.SessionConfig != nil {
-		nn12, err := m.SessionConfig.MarshalTo(dAtA[i:])
+		nn14, err := m.SessionConfig.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += nn12
+		i += nn14
+	}
+	if m.Identification != nil {
+		dAtA[i] = 0x1a
+		i++
+		i = encodeVarintClient(dAtA, i, uint64(m.Identification.Size()))
+		n15, err := m.Identification.MarshalTo(dAtA[i:])
+		if err != nil {
+			return 0, err
+		}
+		i += n15
 	}
 	if m.XXX_unrecognized != nil {
 		i += copy(dAtA[i:], m.XXX_unrecognized)
@@ -1796,11 +2090,11 @@ func (m *ClientSessionMessage_Session_) MarshalTo(dAtA []byte) (int, error) {
 		dAtA[i] = 0xa
 		i++
 		i = encodeVarintClient(dAtA, i, uint64(m.Session.Size()))
-		n13, err := m.Session.MarshalTo(dAtA[i:])
+		n16, err := m.Session.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n13
+		i += n16
 	}
 	return i, nil
 }
@@ -1810,11 +2104,11 @@ func (m *ClientSessionMessage_AnonymousTradingSession_) MarshalTo(dAtA []byte) (
 		dAtA[i] = 0x12
 		i++
 		i = encodeVarintClient(dAtA, i, uint64(m.AnonymousTradingSession.Size()))
-		n14, err := m.AnonymousTradingSession.MarshalTo(dAtA[i:])
+		n17, err := m.AnonymousTradingSession.MarshalTo(dAtA[i:])
 		if err != nil {
 			return 0, err
 		}
-		i += n14
+		i += n17
 	}
 	return i, nil
 }
@@ -2080,6 +2374,18 @@ func (m *ClientMessage_ApiAuthentication) Size() (n int) {
 	}
 	return n
 }
+func (m *ClientMessage_ClientSession) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.ClientSession != nil {
+		l = m.ClientSession.Size()
+		n += 1 + l + sovClient(uint64(l))
+	}
+	return n
+}
 func (m *ClientIdentificationMessage) Size() (n int) {
 	if m == nil {
 		return 0
@@ -2105,6 +2411,12 @@ func (m *ClientIdentificationMessage) Size() (n int) {
 	if len(m.Subscriptions) > 0 {
 		for _, s := range m.Subscriptions {
 			l = len(s)
+			n += 1 + l + sovClient(uint64(l))
+		}
+	}
+	if len(m.ClientSubscriptions) > 0 {
+		for _, e := range m.ClientSubscriptions {
+			l = e.Size()
 			n += 1 + l + sovClient(uint64(l))
 		}
 	}
@@ -2137,6 +2449,21 @@ func (m *WebAuthenticationMessage) Size() (n int) {
 			l = len(s)
 			n += 1 + l + sovClient(uint64(l))
 		}
+	}
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
+func (m *WebAuthenticationResult) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.Status != 0 {
+		n += 1 + sovClient(uint64(m.Status))
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -2208,6 +2535,18 @@ func (m *StreamSubscription) Size() (n int) {
 	return n
 }
 
+func (m *TriggerSubscription) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.XXX_unrecognized != nil {
+		n += len(m.XXX_unrecognized)
+	}
+	return n
+}
+
 func (m *ClientSubscription) Size() (n int) {
 	if m == nil {
 		return 0
@@ -2243,6 +2582,18 @@ func (m *ClientSubscription_TradeSubscription) Size() (n int) {
 	_ = l
 	if m.TradeSubscription != nil {
 		l = m.TradeSubscription.Size()
+		n += 1 + l + sovClient(uint64(l))
+	}
+	return n
+}
+func (m *ClientSubscription_TriggerSubscription) Size() (n int) {
+	if m == nil {
+		return 0
+	}
+	var l int
+	_ = l
+	if m.TriggerSubscription != nil {
+		l = m.TriggerSubscription.Size()
 		n += 1 + l + sovClient(uint64(l))
 	}
 	return n
@@ -2298,6 +2649,10 @@ func (m *ClientSessionMessage) Size() (n int) {
 	_ = l
 	if m.SessionConfig != nil {
 		n += m.SessionConfig.Size()
+	}
+	if m.Identification != nil {
+		l = m.Identification.Size()
+		n += 1 + l + sovClient(uint64(l))
 	}
 	if m.XXX_unrecognized != nil {
 		n += len(m.XXX_unrecognized)
@@ -2629,6 +2984,38 @@ func (m *ClientMessage) Unmarshal(dAtA []byte) error {
 			}
 			m.Body = &ClientMessage_ApiAuthentication{v}
 			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientSession", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowClient
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthClient
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &ClientSessionMessage{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Body = &ClientMessage_ClientSession{v}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipClient(dAtA[iNdEx:])
@@ -2825,6 +3212,37 @@ func (m *ClientIdentificationMessage) Unmarshal(dAtA []byte) error {
 			}
 			m.Subscriptions = append(m.Subscriptions, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		case 6:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ClientSubscriptions", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowClient
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthClient
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ClientSubscriptions = append(m.ClientSubscriptions, &ClientSubscription{})
+			if err := m.ClientSubscriptions[len(m.ClientSubscriptions)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipClient(dAtA[iNdEx:])
@@ -2996,6 +3414,76 @@ func (m *WebAuthenticationMessage) Unmarshal(dAtA []byte) error {
 			}
 			m.AccessList = append(m.AccessList, string(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipClient(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthClient
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *WebAuthenticationResult) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowClient
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: WebAuthenticationResult: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: WebAuthenticationResult: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Status", wireType)
+			}
+			m.Status = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowClient
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				m.Status |= (WebAuthenticationResult_Status(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
 		default:
 			iNdEx = preIndex
 			skippy, err := skipClient(dAtA[iNdEx:])
@@ -3378,6 +3866,57 @@ func (m *StreamSubscription) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+func (m *TriggerSubscription) Unmarshal(dAtA []byte) error {
+	l := len(dAtA)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowClient
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := dAtA[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: TriggerSubscription: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: TriggerSubscription: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		default:
+			iNdEx = preIndex
+			skippy, err := skipClient(dAtA[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthClient
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.XXX_unrecognized = append(m.XXX_unrecognized, dAtA[iNdEx:iNdEx+skippy]...)
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
 func (m *ClientSubscription) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -3470,6 +4009,38 @@ func (m *ClientSubscription) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			m.Body = &ClientSubscription_TradeSubscription{v}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field TriggerSubscription", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowClient
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthClient
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			v := &TriggerSubscription{}
+			if err := v.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			m.Body = &ClientSubscription_TriggerSubscription{v}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -3831,6 +4402,39 @@ func (m *ClientSessionMessage) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			m.SessionConfig = &ClientSessionMessage_AnonymousTradingSession_{v}
+			iNdEx = postIndex
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Identification", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowClient
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthClient
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Identification == nil {
+				m.Identification = &ClientIdentificationMessage{}
+			}
+			if err := m.Identification.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
 			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
@@ -4466,66 +5070,77 @@ var (
 	ErrIntOverflowClient   = fmt.Errorf("proto: integer overflow")
 )
 
-func init() { proto.RegisterFile("client/client.proto", fileDescriptor_client_5194168a5f918a79) }
+func init() { proto.RegisterFile("client/client.proto", fileDescriptor_client_749f7fa9535603b9) }
 
-var fileDescriptor_client_5194168a5f918a79 = []byte{
-	// 927 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x56, 0x4f, 0x6f, 0xe3, 0x44,
-	0x14, 0x8f, 0xe3, 0x34, 0xd9, 0xbc, 0xd0, 0x90, 0xce, 0x56, 0x5b, 0xab, 0x40, 0x08, 0x16, 0xa0,
-	0x4a, 0xa0, 0x2c, 0x5a, 0x38, 0x72, 0x49, 0xba, 0x4b, 0x13, 0x5a, 0xd2, 0xca, 0x6e, 0x28, 0xb7,
-	0x68, 0xe2, 0x4c, 0xd3, 0x51, 0x12, 0xdb, 0xf2, 0x8c, 0x97, 0xe6, 0x6b, 0x20, 0x0e, 0x7c, 0x02,
-	0xbe, 0x02, 0x1c, 0xb8, 0x2f, 0x47, 0x3e, 0x02, 0x2a, 0x5f, 0x04, 0xcd, 0x78, 0x1c, 0xff, 0x89,
-	0x83, 0x7a, 0x40, 0xda, 0x93, 0xfd, 0xde, 0xcc, 0xfb, 0xcd, 0xef, 0xbd, 0xf7, 0x7b, 0x63, 0xc3,
-	0x53, 0x67, 0x49, 0x89, 0xcb, 0x9f, 0x47, 0x8f, 0xae, 0x1f, 0x78, 0xdc, 0x43, 0xcd, 0x2b, 0xf1,
-	0x98, 0x86, 0xb7, 0xa7, 0xd2, 0x6b, 0xfe, 0xae, 0xc3, 0x7e, 0xf4, 0xfa, 0x1d, 0x61, 0x0c, 0xcf,
-	0x09, 0x1a, 0x43, 0x93, 0xce, 0x88, 0xcb, 0xe9, 0x2d, 0x75, 0x30, 0xa7, 0x9e, 0x6b, 0x68, 0x1d,
-	0xed, 0xa4, 0xf1, 0xe2, 0xb3, 0x6e, 0x36, 0xb4, 0x1b, 0x3d, 0x86, 0x99, 0xbd, 0x0a, 0x64, 0x50,
-	0xb2, 0x72, 0x20, 0xe8, 0x1b, 0xa8, 0xb3, 0x70, 0xca, 0x9c, 0x80, 0x4e, 0x89, 0x51, 0x96, 0x88,
-	0x9f, 0x16, 0x23, 0xda, 0xf1, 0xb6, 0x04, 0x2c, 0x09, 0x45, 0x17, 0xd0, 0x08, 0xdd, 0x04, 0x49,
-	0x97, 0x48, 0x27, 0xc5, 0x48, 0xe3, 0x64, 0x63, 0x82, 0x95, 0x0e, 0x47, 0x3f, 0xc0, 0xc1, 0x8f,
-	0x64, 0xda, 0x0b, 0xf9, 0x9d, 0x20, 0xab, 0xf2, 0xad, 0x14, 0x63, 0xde, 0xe4, 0x37, 0x26, 0x98,
-	0xdb, 0x20, 0x02, 0x19, 0xfb, 0x34, 0x87, 0xbc, 0x57, 0x8c, 0xdc, 0xbb, 0x1a, 0xee, 0x44, 0xde,
-	0x02, 0xe9, 0x57, 0xa1, 0x32, 0xf5, 0x66, 0x6b, 0xf3, 0x37, 0x0d, 0xde, 0xfb, 0x8f, 0x1e, 0xa0,
-	0xf7, 0xa1, 0x1e, 0x32, 0x12, 0xe0, 0x39, 0x71, 0xb9, 0xec, 0x61, 0xdd, 0x4a, 0x1c, 0xe8, 0x18,
-	0x9e, 0x04, 0xe4, 0x35, 0x65, 0x82, 0x56, 0x59, 0x2e, 0x6e, 0x6c, 0xd4, 0x81, 0x06, 0x75, 0x39,
-	0x99, 0x07, 0x11, 0x6b, 0x5d, 0x2e, 0xa7, 0x5d, 0xe8, 0x19, 0x54, 0x97, 0x9e, 0x83, 0x97, 0x44,
-	0x16, 0xab, 0x6e, 0x29, 0x0b, 0x7d, 0x0c, 0xfb, 0xaa, 0xb8, 0xbe, 0xd8, 0xc7, 0x8c, 0xbd, 0x8e,
-	0x7e, 0x52, 0xb7, 0xb2, 0x4e, 0xf3, 0x0f, 0x0d, 0x8c, 0x5d, 0xd5, 0x44, 0xf6, 0xff, 0xa0, 0xbf,
-	0x2d, 0xf5, 0x1d, 0xc2, 0x1e, 0xf7, 0x16, 0x24, 0x4e, 0x35, 0x32, 0x84, 0xd7, 0xf5, 0x5c, 0x87,
-	0xa8, 0x0c, 0x23, 0x03, 0x7d, 0x08, 0x0d, 0xec, 0x38, 0x84, 0xb1, 0xc9, 0x92, 0x32, 0x6e, 0x54,
-	0x64, 0x06, 0x10, 0xb9, 0x2e, 0x28, 0xe3, 0xe6, 0x4f, 0x1a, 0xb4, 0xae, 0x03, 0x3c, 0x23, 0x36,
-	0x61, 0xa2, 0x5e, 0x22, 0x0f, 0x74, 0x04, 0x35, 0xec, 0xd3, 0xc9, 0x82, 0xac, 0x55, 0xad, 0xab,
-	0xd8, 0xa7, 0xe7, 0x64, 0x8d, 0x3e, 0x00, 0x10, 0x0b, 0x8c, 0x38, 0x01, 0xe1, 0xea, 0xfc, 0x3a,
-	0xf6, 0xa9, 0x2d, 0x1d, 0xe2, 0x34, 0x27, 0x64, 0xdc, 0x5b, 0x91, 0x60, 0x42, 0x67, 0x8a, 0x09,
-	0xc4, 0xae, 0xe1, 0x0c, 0x7d, 0x02, 0xcd, 0x05, 0x59, 0x4f, 0x7c, 0xcc, 0x98, 0x7f, 0x17, 0x60,
-	0x16, 0x97, 0x7c, 0x7f, 0x41, 0xd6, 0x57, 0x1b, 0xa7, 0x49, 0xe0, 0x20, 0xe2, 0x94, 0xaa, 0xb4,
-	0x68, 0xf2, 0x0a, 0x07, 0x0b, 0xc2, 0x87, 0x33, 0xc5, 0x6a, 0x63, 0xa3, 0xaf, 0xa0, 0x82, 0x43,
-	0x7e, 0xa7, 0x66, 0xb1, 0x93, 0xaf, 0x6e, 0x3e, 0x41, 0x4b, 0xee, 0x36, 0xbf, 0x00, 0x64, 0xf3,
-	0x80, 0xe0, 0x55, 0xfe, 0x9c, 0x80, 0x30, 0x2f, 0x0c, 0x1c, 0x12, 0x9f, 0x13, 0xdb, 0xe6, 0x1b,
-	0x0d, 0x50, 0x66, 0xb0, 0xa3, 0x90, 0x31, 0x3c, 0x65, 0x12, 0x68, 0x92, 0xd6, 0x86, 0xea, 0xb5,
-	0x99, 0x67, 0xb3, 0x7d, 0xe6, 0xa0, 0x64, 0x21, 0xb6, 0xcd, 0xc4, 0x02, 0xc4, 0x05, 0xf3, 0x2c,
-	0x6a, 0x94, 0xe3, 0x47, 0xc5, 0x39, 0x66, 0x41, 0x0f, 0x78, 0xde, 0xb9, 0x19, 0xb8, 0x5f, 0x75,
-	0x30, 0x76, 0x8d, 0x6a, 0xa2, 0x30, 0xad, 0x50, 0x61, 0xe5, 0xb4, 0xc2, 0x52, 0x5a, 0xd1, 0x33,
-	0x5a, 0x39, 0x83, 0xaa, 0xaa, 0xa2, 0xe8, 0x71, 0xf3, 0xc5, 0xf3, 0xc7, 0xde, 0x14, 0x5d, 0x5b,
-	0x86, 0x59, 0x2a, 0x1c, 0x19, 0x50, 0x7b, 0x4d, 0x02, 0x16, 0xdf, 0x39, 0x75, 0x2b, 0x36, 0xd1,
-	0x49, 0x7e, 0x42, 0xab, 0x42, 0xdf, 0xfd, 0xb2, 0xa1, 0xe5, 0xa6, 0x14, 0x8d, 0xe1, 0x30, 0xfa,
-	0x74, 0x4c, 0xb2, 0x01, 0xb5, 0x8e, 0x5e, 0xd4, 0xa2, 0xed, 0x1e, 0x5b, 0xea, 0x0b, 0x64, 0x67,
-	0x86, 0x1f, 0x43, 0x35, 0x22, 0x8b, 0x1a, 0x50, 0x1b, 0x8f, 0xce, 0x47, 0x97, 0x37, 0xa3, 0x56,
-	0x09, 0x35, 0x01, 0xce, 0x2e, 0x2f, 0x7a, 0xa3, 0xb3, 0x89, 0xfd, 0xf2, 0xbc, 0xa5, 0x21, 0x04,
-	0xcd, 0x6f, 0x7b, 0xdf, 0xf7, 0xec, 0x53, 0x6b, 0x78, 0x75, 0x2d, 0x7d, 0x65, 0xf4, 0x0e, 0x3c,
-	0x19, 0x5d, 0xbe, 0x7c, 0x25, 0x2d, 0x5d, 0x58, 0xd6, 0xd8, 0x8e, 0xd6, 0xf6, 0x10, 0x40, 0xf5,
-	0xf4, 0x66, 0x72, 0xf3, 0xaa, 0xdf, 0xaa, 0x98, 0x6f, 0x74, 0x38, 0x54, 0x74, 0x22, 0x01, 0xc7,
-	0x4d, 0x1a, 0x40, 0x8d, 0x45, 0x1e, 0x25, 0xb4, 0xcf, 0x77, 0x64, 0x91, 0x09, 0xeb, 0x2a, 0x73,
-	0x50, 0xb2, 0xe2, 0x70, 0x74, 0x0f, 0x47, 0xd8, 0xf5, 0xdc, 0xf5, 0xca, 0x0b, 0x99, 0x90, 0x11,
-	0x75, 0xe7, 0x6a, 0x97, 0x12, 0xdb, 0xd7, 0x8f, 0x42, 0xee, 0x15, 0x63, 0x0c, 0x4a, 0xd6, 0x2e,
-	0xf8, 0xe3, 0x15, 0xd4, 0xd4, 0xab, 0xb8, 0x85, 0xc5, 0x85, 0xbe, 0x19, 0x6e, 0x65, 0x89, 0xee,
-	0x93, 0x7b, 0x9f, 0x06, 0x84, 0x49, 0x32, 0xba, 0x15, 0x9b, 0x89, 0x4a, 0xf5, 0xb4, 0x4a, 0xc5,
-	0x35, 0x71, 0x8b, 0xaf, 0xe5, 0x42, 0x45, 0x5d, 0x13, 0xca, 0x3e, 0x5e, 0xc0, 0xd1, 0x0e, 0x92,
-	0x22, 0x8c, 0xdc, 0x3b, 0x77, 0xd8, 0x9d, 0x6f, 0xa6, 0x3e, 0xb6, 0x77, 0x5c, 0xb8, 0x6d, 0x00,
-	0xc9, 0x24, 0xf9, 0xae, 0xe8, 0x56, 0xca, 0xd3, 0x7f, 0x17, 0xf6, 0x15, 0xf8, 0xa9, 0xe7, 0xde,
-	0xd2, 0xb9, 0xb8, 0x6a, 0x9f, 0x15, 0xff, 0x15, 0xa0, 0x2e, 0xb4, 0xd2, 0xba, 0x3c, 0x27, 0x6b,
-	0x66, 0x68, 0x1b, 0x2d, 0x6f, 0xad, 0xa1, 0x41, 0x5e, 0xf8, 0xe5, 0x47, 0xeb, 0x38, 0xf7, 0xf9,
-	0xfa, 0x59, 0x03, 0x63, 0xd7, 0x0f, 0xc6, 0xdb, 0xa3, 0xd5, 0x6f, 0xfd, 0xf9, 0xd0, 0xd6, 0xfe,
-	0x7a, 0x68, 0x6b, 0x7f, 0x3f, 0xb4, 0xb5, 0x5f, 0xfe, 0x69, 0x97, 0xa6, 0x55, 0xf9, 0xcf, 0xf7,
-	0xe5, 0xbf, 0x01, 0x00, 0x00, 0xff, 0xff, 0x67, 0xb0, 0xfb, 0x25, 0x0a, 0x0a, 0x00, 0x00,
+var fileDescriptor_client_749f7fa9535603b9 = []byte{
+	// 1089 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xc4, 0x57, 0xcd, 0x72, 0xe3, 0x44,
+	0x10, 0xb6, 0x2c, 0x47, 0x5e, 0xb7, 0xd7, 0x5e, 0x67, 0x12, 0x36, 0xae, 0x00, 0x21, 0x88, 0x9f,
+	0x4a, 0x15, 0x94, 0x97, 0x0a, 0x1c, 0xb9, 0x38, 0x89, 0x13, 0x9b, 0x64, 0x9d, 0x30, 0xb2, 0x37,
+	0xcb, 0xc9, 0x25, 0xcb, 0x13, 0x47, 0xe5, 0x44, 0x72, 0x69, 0x46, 0x4b, 0xfc, 0x0a, 0xdc, 0xa0,
+	0x38, 0x70, 0xe0, 0xc2, 0x85, 0x07, 0xe0, 0xcc, 0x03, 0x70, 0xe4, 0x11, 0xa8, 0xf0, 0x22, 0xd4,
+	0xfc, 0xc8, 0x96, 0x2c, 0x79, 0x49, 0xd5, 0x52, 0xc5, 0x49, 0xee, 0x9e, 0xee, 0x4f, 0xdd, 0x3d,
+	0x5f, 0x77, 0xcb, 0xb0, 0xe1, 0xdc, 0xb8, 0xc4, 0x63, 0xcf, 0xe4, 0xa3, 0x31, 0x0d, 0x7c, 0xe6,
+	0xa3, 0xea, 0x05, 0x7f, 0x0c, 0xc3, 0xab, 0x43, 0xa1, 0x35, 0xbf, 0x2b, 0x40, 0x45, 0xfe, 0x7c,
+	0x4e, 0x28, 0xb5, 0xc7, 0x04, 0x7d, 0x03, 0x55, 0x77, 0x44, 0x3c, 0xe6, 0x5e, 0xb9, 0x8e, 0xcd,
+	0x5c, 0xdf, 0xab, 0x6b, 0xbb, 0xda, 0x5e, 0x79, 0xff, 0x93, 0x46, 0xd2, 0xb5, 0x21, 0x1f, 0x9d,
+	0x84, 0xad, 0x02, 0x39, 0xc8, 0xd7, 0xb5, 0x76, 0x0e, 0x2f, 0x01, 0xa1, 0x63, 0x28, 0xd1, 0x70,
+	0x48, 0x9d, 0xc0, 0x1d, 0x92, 0x7a, 0x5e, 0xa0, 0x7e, 0x9c, 0x8d, 0x6a, 0x45, 0x66, 0x0a, 0xb0,
+	0x9d, 0xc3, 0x0b, 0x57, 0x74, 0x06, 0xe5, 0xd0, 0x5b, 0x20, 0xe9, 0x02, 0x69, 0x2f, 0x1b, 0xa9,
+	0xbf, 0x30, 0x5c, 0x60, 0xc5, 0xdd, 0xd1, 0x4b, 0x58, 0xff, 0x96, 0x0c, 0x9b, 0x21, 0xbb, 0xe6,
+	0xc1, 0xaa, 0x9c, 0x0b, 0xd9, 0x98, 0x97, 0xcb, 0x86, 0x0b, 0xcc, 0x34, 0x08, 0x47, 0xb6, 0xa7,
+	0xee, 0x12, 0xf2, 0x5a, 0x36, 0x72, 0xf3, 0xa2, 0xb3, 0x12, 0x39, 0x05, 0x82, 0xce, 0xa0, 0x22,
+	0xaf, 0xd5, 0x22, 0x94, 0x72, 0x54, 0x43, 0xa0, 0x7e, 0xb8, 0xa2, 0x9a, 0xd2, 0x68, 0x81, 0x98,
+	0x74, 0x3e, 0x30, 0xa0, 0x30, 0xf4, 0x47, 0x33, 0xf3, 0xfb, 0x3c, 0xbc, 0xfd, 0x9a, 0x5b, 0x45,
+	0xef, 0x40, 0x29, 0xa4, 0x24, 0xb0, 0xc7, 0xc4, 0x63, 0x82, 0x15, 0x25, 0xbc, 0x50, 0xa0, 0x6d,
+	0x78, 0x14, 0x90, 0x57, 0xae, 0x08, 0x27, 0x2f, 0x0e, 0xe7, 0x32, 0xda, 0x85, 0xb2, 0xeb, 0x31,
+	0x32, 0x0e, 0x64, 0x0d, 0x74, 0x71, 0x1c, 0x57, 0xa1, 0xa7, 0x60, 0xdc, 0xf8, 0x8e, 0x7d, 0x43,
+	0x44, 0xe9, 0x4b, 0x58, 0x49, 0x68, 0x0f, 0x2a, 0xea, 0xaa, 0xa6, 0xdc, 0x8e, 0xd6, 0xd7, 0x76,
+	0xf5, 0xbd, 0x12, 0x27, 0x18, 0x4e, 0x1e, 0xa0, 0x5e, 0xc4, 0x78, 0x2b, 0x61, 0x6f, 0xec, 0xea,
+	0x7b, 0xe5, 0x7d, 0xf3, 0xb5, 0x3c, 0x13, 0xa6, 0x38, 0xcb, 0xdd, 0xfc, 0x5d, 0x83, 0xfa, 0xaa,
+	0x5b, 0x47, 0xd6, 0x7f, 0xd0, 0x2b, 0xa9, 0x2e, 0xd9, 0x84, 0x35, 0xe6, 0x4f, 0x48, 0x54, 0x44,
+	0x29, 0x70, 0xad, 0xe7, 0x7b, 0x0e, 0x51, 0xb5, 0x93, 0x02, 0x7a, 0x0f, 0xca, 0xb6, 0xe3, 0x10,
+	0x4a, 0x07, 0x37, 0x2e, 0x65, 0xf5, 0x02, 0xaf, 0x0d, 0x06, 0xa9, 0x3a, 0x73, 0x29, 0x33, 0x7f,
+	0xd3, 0x60, 0x2b, 0x15, 0x3e, 0x26, 0x34, 0xbc, 0x61, 0xe8, 0x18, 0x0c, 0xca, 0x6c, 0x16, 0x52,
+	0x11, 0x75, 0x75, 0xbf, 0xf1, 0xaf, 0x6c, 0x97, 0x8e, 0x0d, 0x4b, 0x78, 0x61, 0xe5, 0x6d, 0x9e,
+	0x83, 0x21, 0x35, 0xa8, 0x0c, 0xc5, 0x7e, 0xf7, 0xb4, 0x7b, 0x7e, 0xd9, 0xad, 0xe5, 0xd0, 0x3a,
+	0x54, 0x9a, 0xfd, 0x5e, 0xbb, 0xd5, 0xed, 0x75, 0x0e, 0x9b, 0xbd, 0xd6, 0x51, 0x4d, 0x43, 0x1b,
+	0xf0, 0xa4, 0xd3, 0x7d, 0xd1, 0x3c, 0xeb, 0x1c, 0x0d, 0xac, 0x96, 0x65, 0x75, 0xce, 0xbb, 0xb5,
+	0x3c, 0xaa, 0xc1, 0xe3, 0xe7, 0xc7, 0xcd, 0x01, 0x6e, 0x7d, 0xdd, 0xef, 0xe0, 0xd6, 0x51, 0x4d,
+	0x37, 0x7f, 0xd0, 0xa0, 0xd6, 0x0b, 0xec, 0x11, 0x51, 0x04, 0xe5, 0x41, 0xa0, 0x2d, 0x28, 0xda,
+	0x53, 0x77, 0x30, 0x21, 0x33, 0x45, 0x3d, 0xc3, 0x9e, 0xba, 0xa7, 0x64, 0x86, 0xde, 0x05, 0xe0,
+	0x07, 0x94, 0x38, 0x01, 0x61, 0xaa, 0x68, 0x25, 0x7b, 0xea, 0x5a, 0x42, 0xc1, 0x4b, 0xe4, 0x84,
+	0x94, 0xf9, 0xb7, 0x24, 0x18, 0xb8, 0x23, 0x55, 0x3e, 0x88, 0x54, 0x9d, 0x11, 0xfa, 0x08, 0xaa,
+	0x13, 0x32, 0x1b, 0x4c, 0x6d, 0x4a, 0xa7, 0xd7, 0x81, 0x4d, 0x23, 0x06, 0x56, 0x26, 0x64, 0x76,
+	0x31, 0x57, 0x9a, 0x04, 0xd6, 0x65, 0x4c, 0x31, 0x7a, 0x70, 0xce, 0xdf, 0xda, 0xc1, 0x84, 0xb0,
+	0xce, 0x48, 0x45, 0x35, 0x97, 0xd1, 0x17, 0x50, 0xb0, 0x43, 0x76, 0xad, 0x06, 0xdd, 0xee, 0x72,
+	0x71, 0x97, 0x13, 0xc4, 0xc2, 0xda, 0xfc, 0x0c, 0x90, 0xc5, 0x02, 0x62, 0xdf, 0x2e, 0xbf, 0x27,
+	0x20, 0xd4, 0x0f, 0x03, 0x87, 0x44, 0xef, 0x89, 0x64, 0xf3, 0x2d, 0xd8, 0xe8, 0x05, 0xee, 0x78,
+	0x4c, 0x82, 0xb8, 0x8b, 0xf9, 0x4b, 0x1e, 0x50, 0x9a, 0xe4, 0xa8, 0x0f, 0x1b, 0x54, 0xe0, 0x0f,
+	0xe2, 0xdd, 0xa3, 0x78, 0x9b, 0xea, 0x92, 0x74, 0x28, 0xed, 0x1c, 0x46, 0x34, 0x1d, 0x20, 0x06,
+	0xc4, 0x78, 0x42, 0x49, 0x54, 0x99, 0xfa, 0xfb, 0xd9, 0xa9, 0x27, 0x41, 0xd7, 0x59, 0xaa, 0xb8,
+	0x2f, 0x61, 0x93, 0xc9, 0xc4, 0x92, 0xa8, 0x72, 0xde, 0x7f, 0x90, 0x46, 0x4d, 0x15, 0xa1, 0x9d,
+	0xc3, 0x1b, 0x2c, 0xad, 0x9e, 0x0f, 0xbc, 0x5f, 0x75, 0xa8, 0xaf, 0x1a, 0xbc, 0x8b, 0x3e, 0xd4,
+	0x32, 0xfb, 0x30, 0x1f, 0xef, 0xc3, 0x18, 0x39, 0xf5, 0x04, 0x39, 0x4f, 0xc0, 0x50, 0xd7, 0x56,
+	0x10, 0x3d, 0xf6, 0xec, 0xa1, 0x73, 0xbf, 0x61, 0x09, 0x37, 0xac, 0xdc, 0x51, 0x1d, 0x8a, 0xaf,
+	0x48, 0x40, 0xa3, 0x0d, 0x52, 0xc2, 0x91, 0x98, 0x9e, 0x90, 0xc6, 0xaa, 0x09, 0xd9, 0x87, 0x4d,
+	0x39, 0xe2, 0x06, 0x49, 0x87, 0xe2, 0x9b, 0x8d, 0x48, 0x1b, 0x0c, 0x19, 0x6c, 0xb2, 0xff, 0xab,
+	0x00, 0x27, 0xe7, 0x67, 0xcd, 0xee, 0xc9, 0xc0, 0x3a, 0x3a, 0xad, 0x69, 0x08, 0x41, 0xf5, 0xab,
+	0xe6, 0x8b, 0xa6, 0x75, 0x88, 0x3b, 0x17, 0x3d, 0xa1, 0xcb, 0xa3, 0xc7, 0xf0, 0xa8, 0x7b, 0x7e,
+	0xd4, 0x12, 0x92, 0xce, 0x25, 0xdc, 0xb7, 0xe4, 0xd9, 0x1a, 0x02, 0x30, 0x0e, 0x2f, 0x07, 0x97,
+	0xad, 0x83, 0x5a, 0xc1, 0xfc, 0xb9, 0x00, 0x9b, 0x59, 0xbb, 0x0c, 0xb5, 0xa1, 0x48, 0xd5, 0x0a,
+	0x94, 0x14, 0xfe, 0xf4, 0x21, 0x2b, 0xb0, 0xa1, 0xc4, 0x76, 0x0e, 0x47, 0xee, 0xe8, 0x0e, 0xb6,
+	0x6c, 0xcf, 0xf7, 0x66, 0xb7, 0x7e, 0x48, 0x39, 0x41, 0x5d, 0x6f, 0x1c, 0x2d, 0x57, 0x49, 0xe3,
+	0x2f, 0x1f, 0x84, 0xdc, 0xcc, 0xc6, 0x68, 0xe7, 0xf0, 0x2a, 0xf8, 0x8c, 0x2d, 0xa2, 0xbf, 0xf1,
+	0x16, 0xd9, 0xbe, 0x85, 0x62, 0x84, 0xff, 0x14, 0x0c, 0xbe, 0xa5, 0xe7, 0x23, 0x4a, 0x49, 0x9c,
+	0x52, 0xe4, 0x6e, 0xea, 0x06, 0x84, 0x8a, 0x0c, 0x75, 0x1c, 0x89, 0x0b, 0xea, 0xeb, 0x71, 0xea,
+	0xf3, 0x61, 0x77, 0x65, 0xf7, 0xc4, 0x41, 0x41, 0x0d, 0x3b, 0x25, 0x6f, 0x4f, 0x60, 0x6b, 0x45,
+	0xe6, 0xdc, 0x8d, 0xdc, 0x39, 0xd7, 0xb6, 0x37, 0x9e, 0xcf, 0xae, 0x48, 0x5e, 0xb1, 0xeb, 0x76,
+	0x00, 0x44, 0x24, 0x8b, 0x62, 0xe8, 0x38, 0xa6, 0x39, 0x78, 0x02, 0x15, 0x05, 0x7e, 0xe8, 0x7b,
+	0x57, 0xee, 0x98, 0x2f, 0x8c, 0xa7, 0xd9, 0x1f, 0x8e, 0xa8, 0x01, 0xb5, 0x38, 0xd9, 0x4f, 0xc9,
+	0x8c, 0xaf, 0xbb, 0xa8, 0x41, 0x52, 0x67, 0xa8, 0xbd, 0xdc, 0x4d, 0xf9, 0x07, 0x37, 0x47, 0xd2,
+	0xd1, 0xfc, 0x51, 0x83, 0xfa, 0xaa, 0x6f, 0xd0, 0xff, 0x2f, 0xac, 0x83, 0xda, 0x1f, 0xf7, 0x3b,
+	0xda, 0x9f, 0xf7, 0x3b, 0xda, 0x5f, 0xf7, 0x3b, 0xda, 0x4f, 0x7f, 0xef, 0xe4, 0x86, 0x86, 0xf8,
+	0x6b, 0xf0, 0xf9, 0x3f, 0x01, 0x00, 0x00, 0xff, 0xff, 0xa1, 0x00, 0x66, 0x07, 0x31, 0x0c, 0x00,
+	0x00,
 }

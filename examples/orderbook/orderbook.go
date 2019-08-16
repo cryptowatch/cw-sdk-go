@@ -5,8 +5,9 @@ import (
 	"sort"
 	"strings"
 
-	"code.cryptowat.ch/cw-sdk-go/common"
 	"github.com/fatih/color"
+
+	"code.cryptowat.ch/cw-sdk-go/common"
 )
 
 var (

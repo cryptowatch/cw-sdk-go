@@ -6,11 +6,12 @@ package ProtobufClient;
 // and pass metadata about the client.
 message ClientMessage {
   oneof body {
-    ClientIdentificationMessage identification = 1;
+    ClientIdentificationMessage identification = 1 [deprecated=true];
     ClientSubscribeMessage subscribe = 2;
     ClientUnsubscribeMessage unsubscribe = 3;
     WebAuthenticationMessage webAuthentication = 4;
     APIAuthenticationMessage apiAuthentication = 5;
+    ClientSessionMessage clientSession = 6;
   }
 }
 
@@ -21,7 +22,8 @@ message ClientIdentificationMessage {
   string revision = 2;
   string integration = 3;
   string locale = 4;
-  repeated string subscriptions = 5;
+  repeated string subscriptions = 5 [deprecated=true];
+  repeated ClientSubscription clientSubscriptions = 6; // should be used for subscriptions
 }
 
 message WebAuthenticationMessage {
@@ -29,6 +31,16 @@ message WebAuthenticationMessage {
   string token = 2;
   string nonce = 3;
   repeated string access_list = 4;
+}
+
+message WebAuthenticationResult {
+  Status status = 1;
+  enum Status {
+    UNKNOWN = 0;
+    AUTHENTICATED = 1;
+    INVALID_SESSION = 2;
+    MFA_REQUIRED = 3;
+  }
 }
 
 message TradeSessionAuth {
@@ -49,10 +61,16 @@ message StreamSubscription {
   string resource = 1;
 }
 
+message TriggerSubscription {
+  // No fields needed for now, there's only one trigger "subscription" possible
+  // (all of them).
+}
+
 message ClientSubscription {
   oneof body {
     StreamSubscription stream_subscription = 1;
     TradeSubscription trade_subscription = 2;
+    TriggerSubscription trigger_subscription = 3;
   }
 }
 
@@ -93,6 +111,8 @@ message ClientSessionMessage {
     Session session = 1;
     AnonymousTradingSession anonymousTradingSession = 2;
   }
+
+  ClientIdentificationMessage identification = 3;
 }
 
 // SubscribeMessage informs the Stream Hub to subscribe the current web socket to

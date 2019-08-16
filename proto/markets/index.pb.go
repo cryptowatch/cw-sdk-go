@@ -44,7 +44,7 @@ func (m *Index) Reset()         { *m = Index{} }
 func (m *Index) String() string { return proto.CompactTextString(m) }
 func (*Index) ProtoMessage()    {}
 func (*Index) Descriptor() ([]byte, []int) {
-	return fileDescriptor_index_65fdf612e8567226, []int{0}
+	return fileDescriptor_index_495ff0f94327cf88, []int{0}
 }
 func (m *Index) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -132,7 +132,7 @@ func (m *IndexUpdateMessage) Reset()         { *m = IndexUpdateMessage{} }
 func (m *IndexUpdateMessage) String() string { return proto.CompactTextString(m) }
 func (*IndexUpdateMessage) ProtoMessage()    {}
 func (*IndexUpdateMessage) Descriptor() ([]byte, []int) {
-	return fileDescriptor_index_65fdf612e8567226, []int{1}
+	return fileDescriptor_index_495ff0f94327cf88, []int{1}
 }
 func (m *IndexUpdateMessage) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -351,7 +351,7 @@ func (m *TickerUpdate) Reset()         { *m = TickerUpdate{} }
 func (m *TickerUpdate) String() string { return proto.CompactTextString(m) }
 func (*TickerUpdate) ProtoMessage()    {}
 func (*TickerUpdate) Descriptor() ([]byte, []int) {
-	return fileDescriptor_index_65fdf612e8567226, []int{2}
+	return fileDescriptor_index_495ff0f94327cf88, []int{2}
 }
 func (m *TickerUpdate) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -403,7 +403,7 @@ func (m *Ticker) Reset()         { *m = Ticker{} }
 func (m *Ticker) String() string { return proto.CompactTextString(m) }
 func (*Ticker) ProtoMessage()    {}
 func (*Ticker) Descriptor() ([]byte, []int) {
-	return fileDescriptor_index_65fdf612e8567226, []int{3}
+	return fileDescriptor_index_495ff0f94327cf88, []int{3}
 }
 func (m *Ticker) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -1545,9 +1545,9 @@ var (
 	ErrIntOverflowIndex   = fmt.Errorf("proto: integer overflow")
 )
 
-func init() { proto.RegisterFile("markets/index.proto", fileDescriptor_index_65fdf612e8567226) }
+func init() { proto.RegisterFile("markets/index.proto", fileDescriptor_index_495ff0f94327cf88) }
 
-var fileDescriptor_index_65fdf612e8567226 = []byte{
+var fileDescriptor_index_495ff0f94327cf88 = []byte{
 	// 425 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x74, 0x52, 0xdd, 0x6e, 0xd3, 0x30,
 	0x14, 0xae, 0x9b, 0x26, 0x5b, 0x4f, 0x3b, 0x86, 0xcc, 0x34, 0x2c, 0x04, 0x51, 0x14, 0x71, 0x91,

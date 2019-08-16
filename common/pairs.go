@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+type PairID string
+
 // PairUpdate is a container for all pair data callbacks. For any PairUpdate
 // instance, it will only ever have one of its properties non-null.
 // See OnPairUpdate.
@@ -27,7 +29,7 @@ func (v PairUpdate) String() string {
 // Pair represents the currency pair as defined by the Cryptowatch API:
 // https://api.cryptowat.ch/pairs
 type Pair struct {
-	ID string
+	ID PairID
 }
 
 // PerformanceWindow represents the time window over which performance is
@@ -68,9 +70,8 @@ type TrendlineUpdate struct {
 }
 
 // VWAPUpdate represents the most recent volume weighted average price update
-// for a market.
+// for a market at a given time.
 // TODO explain calculation
-// TODO does this need a timestamp?
 type VWAPUpdate struct {
 	VWAP      string
 	Timestamp time.Time

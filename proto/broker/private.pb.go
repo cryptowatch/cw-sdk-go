@@ -42,7 +42,7 @@ func (x FundingType) String() string {
 	return proto.EnumName(FundingType_name, int32(x))
 }
 func (FundingType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{0}
+	return fileDescriptor_private_811f458ee9e53268, []int{0}
 }
 
 type PrivateOrder_Type int32
@@ -98,7 +98,7 @@ func (x PrivateOrder_Type) String() string {
 	return proto.EnumName(PrivateOrder_Type_name, int32(x))
 }
 func (PrivateOrder_Type) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{0, 0}
+	return fileDescriptor_private_811f458ee9e53268, []int{0, 0}
 }
 
 type PrivateOrder_PriceParamType int32
@@ -124,7 +124,7 @@ func (x PrivateOrder_PriceParamType) String() string {
 	return proto.EnumName(PrivateOrder_PriceParamType_name, int32(x))
 }
 func (PrivateOrder_PriceParamType) EnumDescriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{0, 1}
+	return fileDescriptor_private_811f458ee9e53268, []int{0, 1}
 }
 
 type PrivateOrder struct {
@@ -161,7 +161,7 @@ func (m *PrivateOrder) Reset()         { *m = PrivateOrder{} }
 func (m *PrivateOrder) String() string { return proto.CompactTextString(m) }
 func (*PrivateOrder) ProtoMessage()    {}
 func (*PrivateOrder) Descriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{0}
+	return fileDescriptor_private_811f458ee9e53268, []int{0}
 }
 func (m *PrivateOrder) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -357,7 +357,7 @@ func (m *PrivateOrder_PriceParam) Reset()         { *m = PrivateOrder_PriceParam
 func (m *PrivateOrder_PriceParam) String() string { return proto.CompactTextString(m) }
 func (*PrivateOrder_PriceParam) ProtoMessage()    {}
 func (*PrivateOrder_PriceParam) Descriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{0, 0}
+	return fileDescriptor_private_811f458ee9e53268, []int{0, 0}
 }
 func (m *PrivateOrder_PriceParam) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -428,7 +428,7 @@ func (m *PrivateTrade) Reset()         { *m = PrivateTrade{} }
 func (m *PrivateTrade) String() string { return proto.CompactTextString(m) }
 func (*PrivateTrade) ProtoMessage()    {}
 func (*PrivateTrade) Descriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{1}
+	return fileDescriptor_private_811f458ee9e53268, []int{1}
 }
 func (m *PrivateTrade) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -554,7 +554,7 @@ func (m *PrivatePosition) Reset()         { *m = PrivatePosition{} }
 func (m *PrivatePosition) String() string { return proto.CompactTextString(m) }
 func (*PrivatePosition) ProtoMessage()    {}
 func (*PrivatePosition) Descriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{2}
+	return fileDescriptor_private_811f458ee9e53268, []int{2}
 }
 func (m *PrivatePosition) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -673,7 +673,7 @@ func (m *Balance) Reset()         { *m = Balance{} }
 func (m *Balance) String() string { return proto.CompactTextString(m) }
 func (*Balance) ProtoMessage()    {}
 func (*Balance) Descriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{3}
+	return fileDescriptor_private_811f458ee9e53268, []int{3}
 }
 func (m *Balance) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -735,7 +735,7 @@ func (m *Balances) Reset()         { *m = Balances{} }
 func (m *Balances) String() string { return proto.CompactTextString(m) }
 func (*Balances) ProtoMessage()    {}
 func (*Balances) Descriptor() ([]byte, []int) {
-	return fileDescriptor_private_2f1ce96c0479ffe4, []int{4}
+	return fileDescriptor_private_811f458ee9e53268, []int{4}
 }
 func (m *Balances) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
@@ -3042,9 +3042,9 @@ var (
 	ErrIntOverflowPrivate   = fmt.Errorf("proto: integer overflow")
 )
 
-func init() { proto.RegisterFile("broker/private.proto", fileDescriptor_private_2f1ce96c0479ffe4) }
+func init() { proto.RegisterFile("broker/private.proto", fileDescriptor_private_811f458ee9e53268) }
 
-var fileDescriptor_private_2f1ce96c0479ffe4 = []byte{
+var fileDescriptor_private_811f458ee9e53268 = []byte{
 	// 940 bytes of a gzipped FileDescriptorProto
 	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xb4, 0x56, 0xcd, 0x6e, 0x23, 0x45,
 	0x10, 0xde, 0xf9, 0xb1, 0x3d, 0xae, 0xf1, 0xda, 0x93, 0xda, 0x6c, 0xd2, 0x64, 0x91, 0x35, 0x18,

@@ -122,11 +122,21 @@ message Balance {
   string currency = 1;
   float amount = 2;
   string amountString = 3;
+
+  // AllBalances grep flag: Ai33fA
+  // string asset = 4;
+  // string symbol = 5;
+  // string amountTotal = 6;
+  // string amountAvailable = 7;
 }
 
 message Balances {
   FundingType fundingType = 1;
   repeated Balance balances = 2;
+
+  // AllBalances grep flag: Ai33fA
+  // string name = 5;
+  // string error = 6;
 
   reserved 3;
   reserved 4;

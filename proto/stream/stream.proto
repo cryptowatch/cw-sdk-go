@@ -18,6 +18,7 @@ message StreamMessage {
     ProtobufMarkets.PairUpdateMessage pairUpdate = 3;
     ProtobufMarkets.AssetUpdateMessage assetUpdate = 4;
     ProtobufMarkets.IndexUpdateMessage indexUpdate = 8;
+    BandwidthUpdate bandwidthUpdate = 9;
   }
 }
 
@@ -29,6 +30,8 @@ message AuthenticationResult {
     BAD_NONCE = 2;
     BAD_TOKEN = 3;
     TOKEN_EXPIRED = 4;
+    READONLY_KEY = 5; // this should probably be deprecated for ACCESS_DENIED
+    ACCESS_DENIED = 6;
   }
 }
 
@@ -95,4 +98,14 @@ message SubscriptionStatus {
 // could only happen if a client subscribes to too many channels.
 message MissedMessages {
   int64 numMissedMessages = 1;
+}
+
+// BandwidthUpdate is sent periodically to update stream api clients on their bandwidth usage.
+// - Ok indicates if you have remaining bandwidth to stream.
+// - bytesRemaining is the number of bytes you can stream until the next billing period.
+// - bytesUsed is the number of bytes you have streamed since the last billing period.
+message BandwidthUpdate {
+  bool ok = 1;
+  int64 bytesRemaining = 2;
+  int64 bytesUsed = 3;
 }

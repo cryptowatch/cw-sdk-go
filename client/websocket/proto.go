@@ -4,13 +4,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/golang/protobuf/proto"
+	"github.com/juju/errors"
+
 	"code.cryptowat.ch/cw-sdk-go/common"
 	pbb "code.cryptowat.ch/cw-sdk-go/proto/broker"
 	pbc "code.cryptowat.ch/cw-sdk-go/proto/client"
 	pbm "code.cryptowat.ch/cw-sdk-go/proto/markets"
 	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
-	"github.com/golang/protobuf/proto"
-	"github.com/juju/errors"
 )
 
 // TODO check if pointers are null
@@ -75,7 +76,7 @@ func orderBookDeltaUpdateFromProto(obdu *pbm.OrderBookDeltaUpdate) common.OrderB
 
 func orderBookSpreadUpdateFromProto(obsu *pbm.OrderBookSpreadUpdate) common.OrderBookSpreadUpdate {
 	return common.OrderBookSpreadUpdate{
-		Timestamp: time.Unix(obsu.Timestamp, 0),
+		Timestamp: time.Unix(0, obsu.Timestamp*int64(time.Millisecond)),
 		Bid:       publicOrderFromProto(obsu.Bid),
 		Ask:       publicOrderFromProto(obsu.Ask),
 	}
@@ -257,8 +258,46 @@ func balanceFromProto(balance *pbb.Balance) common.Balance {
 	return common.Balance{
 		Currency: balance.Currency,
 		Amount:   balance.AmountString,
+
+		// AllBalances grep flag: Ai33fA
+		// Asset:     balance.Asset,
+		// Symbol:    balance.Symbol,
+		// Total:     balance.AmountTotal,
+		// Available: balance.AmountAvailable,
 	}
 }
+
+// AllBalances grep flag: Ai33fA
+// func exchangeBalancesFromProto(balances []*pbb.Balances) common.ExchangeBalances {
+// 	result := make(common.ExchangeBalances)
+
+// 	for _, xbalance := range balances {
+// 		xbals, ok := result[xbalance.Name]
+// 		if !ok {
+// 			xbals = common.ExchangeBalance{
+// 				Name:     xbalance.Name,
+// 				Error:    xbalance.Error,
+// 				Balances: make(common.Balances),
+// 			}
+// 		}
+
+// 		ft := common.FundingType(xbalance.FundingType)
+
+// 		ftBals, ok := xbals.Balances[ft]
+// 		if !ok {
+// 			ftBals = make([]common.Balance, 0, len(xbalance.Balances))
+// 		}
+
+// 		for _, b := range xbalance.Balances {
+// 			ftBals = append(ftBals, balanceFromProto(b))
+// 		}
+
+// 		xbals.Balances[ft] = ftBals
+// 		result[xbalance.Name] = xbals
+// 	}
+
+// 	return result
+// }
 
 func balancesToProto(balances common.Balances) []*pbb.Balances {
 	var ret []*pbb.Balances
@@ -269,6 +308,12 @@ func balancesToProto(balances common.Balances) []*pbb.Balances {
 			balances = append(balances, &pbb.Balance{
 				Currency:     bal.Currency,
 				AmountString: bal.Amount,
+
+				// AllBalances grep flag: Ai33fA
+				// Asset:           bal.Asset,
+				// Symbol:          bal.Symbol,
+				// AmountTotal:     bal.Total,
+				// AmountAvailable: bal.Available,
 			})
 		}
 		ret = append(ret, &pbb.Balances{
@@ -282,13 +327,14 @@ func balancesToProto(balances common.Balances) []*pbb.Balances {
 
 func positionFromProto(position *pbb.PrivatePosition) common.PrivatePosition {
 	return common.PrivatePosition{
-		ExternalID: position.Id,
-		Timestamp:  time.Unix(position.Time, 0),
-		OrderSide:  common.OrderSide(position.Side),
-		AvgPrice:   position.AvgPriceString,
-		AmountOpen: position.AmountOpenString,
-		OrderIDs:   position.OrderIds,
-		TradeIDs:   position.TradeIds,
+		ExternalID:   position.Id,
+		Timestamp:    time.Unix(position.Time, 0),
+		OrderSide:    common.OrderSide(position.Side),
+		AvgPrice:     position.AvgPriceString,
+		AmountOpen:   position.AmountOpenString,
+		AmountClosed: position.AmountClosedString,
+		OrderIDs:     position.OrderIds,
+		TradeIDs:     position.TradeIds,
 	}
 }
 
@@ -371,6 +417,14 @@ func unsubscriptionResultFromProto(sr *pbs.UnsubscriptionResult) UnsubscriptionR
 		Status: SubscriptionStatus{
 			Subscriptions: subsFromProto(sr.Status.GetSubscriptions()),
 		},
+	}
+}
+
+func bandwidthFromProto(bu *pbs.BandwidthUpdate) Bandwidth {
+	return Bandwidth{
+		OK:             bu.Ok,
+		BytesRemaining: bu.BytesRemaining,
+		BytesUsed:      bu.BytesUsed,
 	}
 }
 

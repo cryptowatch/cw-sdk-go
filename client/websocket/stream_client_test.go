@@ -1,17 +1,19 @@
 package websocket
 
 import (
+	"context"
 	"testing"
 	"time"
+
+	"github.com/golang/protobuf/proto"
+	"github.com/gorilla/websocket"
+	"github.com/juju/errors"
+	"github.com/stretchr/testify/assert"
 
 	"code.cryptowat.ch/cw-sdk-go/client/websocket/internal"
 	"code.cryptowat.ch/cw-sdk-go/common"
 	pbm "code.cryptowat.ch/cw-sdk-go/proto/markets"
 	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
-	"github.com/golang/protobuf/proto"
-	"github.com/gorilla/websocket"
-	"github.com/juju/errors"
-	"github.com/stretchr/testify/assert"
 )
 
 var testStreamSubscriptions = []*StreamSubscription{
@@ -20,9 +22,12 @@ var testStreamSubscriptions = []*StreamSubscription{
 }
 
 func TestStreamClient(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	assert := assert.New(t)
 
-	err := withTestServer(streamServer, t, func(tp *testServerParams) error {
+	err := withTestServer(ctx, t, streamServer, func(tp *testServerParams) error {
 		client, err := NewStreamClient(&StreamClientParams{
 			WSParams: &WSParams{
 				URL:       tp.url,
@@ -87,7 +92,7 @@ func TestStreamClient(t *testing.T) {
 
 			case md.OrderBookSpreadUpdate != nil:
 				ob := md.OrderBookSpreadUpdate
-				assert.Equal(testOrderBookSpreadUpdate.Timestamp, ob.Timestamp.Unix())
+				assert.Equal(testOrderBookSpreadUpdate.Timestamp, ob.Timestamp.UnixNano()/int64(time.Millisecond))
 				assert.Equal(testOrderBookSpreadUpdate.Bid.PriceStr, ob.Bid.Price)
 				assert.Equal(testOrderBookSpreadUpdate.Bid.AmountStr, ob.Bid.Price)
 				assert.Equal(testOrderBookSpreadUpdate.Ask.PriceStr, ob.Ask.Price)
@@ -150,7 +155,7 @@ func TestStreamClient(t *testing.T) {
 		})
 
 		client.OnPairUpdate(func(p common.Pair, pd common.PairUpdate) {
-			assert.Equal(p.ID, "1")
+			assert.Equal(p.ID, common.PairID("1"))
 			switch {
 			case pd.VWAPUpdate != nil:
 				vu := pd.VWAPUpdate
@@ -238,9 +243,9 @@ func TestStreamClient(t *testing.T) {
 		return nil
 	})
 	if err != nil {
+		cancel()
 		t.Log(errors.ErrorStack(err))
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 }
 

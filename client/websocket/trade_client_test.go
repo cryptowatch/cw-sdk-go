@@ -1,20 +1,22 @@
 package websocket
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
-	"code.cryptowat.ch/cw-sdk-go/client/websocket/internal"
-	"code.cryptowat.ch/cw-sdk-go/common"
-	pbb "code.cryptowat.ch/cw-sdk-go/proto/broker"
-	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/juju/errors"
 	"github.com/stretchr/testify/assert"
+
+	"code.cryptowat.ch/cw-sdk-go/client/websocket/internal"
+	"code.cryptowat.ch/cw-sdk-go/common"
+	pbb "code.cryptowat.ch/cw-sdk-go/proto/broker"
+	pbs "code.cryptowat.ch/cw-sdk-go/proto/stream"
 )
 
 // The following orders/trades/balances already exist on broker
@@ -64,18 +66,50 @@ var mockTrades = []common.PrivateTrade{
 }
 
 // Balances grep flag: Ki49fK
-// var mockBalances = common.Balances{
-// 	common.SpotFunding: []common.Balance{
-// 		common.Balance{
-// 			Currency: "usd",
-// 			Amount:   "1.0",
-// 		},
-// 	},
+var mockBalances = common.Balances{
+	common.SpotFunding: []common.Balance{
+		common.Balance{
+			Currency: "usd",
+			Amount:   "1.0",
+		},
+	},
 
-// 	common.MarginFunding: []common.Balance{
-// 		common.Balance{
-// 			Currency: "eth",
-// 			Amount:   "1.0",
+	common.MarginFunding: []common.Balance{
+		common.Balance{
+			Currency: "eth",
+			Amount:   "1.0",
+		},
+	},
+}
+
+// AllBalances grep flag: Ai33fA
+// var mockAllBalances = common.ExchangeBalances{
+// 	"bitfinex": common.ExchangeBalance{
+// 		Name:  "bitfinex",
+// 		Error: "",
+// 		Balances: common.Balances{
+// 			0: []common.Balance{
+// 				common.Balance{
+// 					Asset:     "Bitcoin",
+// 					Symbol:    "btc",
+// 					Total:     "0.02324881",
+// 					Available: "0.00478881",
+// 				},
+// 				common.Balance{
+// 					Asset:     "United States dollar",
+// 					Symbol:    "usd",
+// 					Total:     "83.02322",
+// 					Available: "43.065998",
+// 				},
+// 			},
+// 			1: []common.Balance{
+// 				common.Balance{
+// 					Asset:     "Bitcoin Gold",
+// 					Symbol:    "btg",
+// 					Total:     "0.06",
+// 					Available: "0.06",
+// 				},
+// 			},
 // 		},
 // 	},
 // }
@@ -94,10 +128,13 @@ var mockPositions = []common.PrivatePosition{
 }
 
 func TestTradeConn(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	marketID := "1"
 	marketIDint := int64(1)
 
-	err := withTestServer(brokerServer, t, func(tp *testServerParams) error {
+	err := withTestServer(ctx, t, brokerServer, func(tp *testServerParams) error {
 		tradeParams := &TradeClientParams{
 			WSParams: &WSParams{
 				URL:       tp.url,
@@ -258,16 +295,19 @@ func TestTradeConn(t *testing.T) {
 		return nil
 	})
 	if err != nil {
+		cancel()
 		t.Log(errors.ErrorStack(err))
-		t.Error(err)
-		return
+		t.Fatal(err)
 	}
 }
 
 func TestTrading(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	assert := assert.New(t)
 
-	err := withTestServer(brokerServer, t, func(tp *testServerParams) error {
+	err := withTestServer(ctx, t, brokerServer, func(tp *testServerParams) error {
 		marketID := common.MarketID("1")
 		marketIDint := int64(1)
 
@@ -337,7 +377,7 @@ func TestTrading(t *testing.T) {
 		// 	return errors.Trace(err)
 		// }
 
-		go mockBrokerServer(t, tp, []int64{marketIDint})
+		go mockBrokerServer(ctx, t, tp, []int64{marketIDint})
 
 		onReadyCalled := make(chan struct{}, 1)
 		client.OnReady(func() {
@@ -358,8 +398,8 @@ func TestTrading(t *testing.T) {
 		assert.Equal(ErrNotInitialized, errors.Cause(err))
 
 		// Balances grep flag: Ki49fK
-		// _, err = client.GetBalances(marketID)
-		// assert.Equal(ErrNotInitialized, errors.Cause(err))
+		_, err = client.GetBalances(marketID)
+		assert.Equal(ErrNotInitialized, errors.Cause(err))
 
 		if err := initMockBrokerConn(t, tp, marketIDint); err != nil {
 			return errors.Trace(err)
@@ -374,9 +414,9 @@ func TestTrading(t *testing.T) {
 		//
 
 		// Balances grep flag: Ki49fK
-		// balances, err := client.GetBalances(marketID)
-		// assert.Equal(mockBalances, balances)
-		// assert.Equal(nil, err)
+		balances, err := client.GetBalances(marketID)
+		assert.Equal(mockBalances, balances)
+		assert.Equal(nil, err)
 
 		orders, err := client.GetOrders(marketID)
 		for i, o := range mockOrders {
@@ -434,19 +474,25 @@ func TestTrading(t *testing.T) {
 			return errors.Trace(err)
 		}
 
+		// AllBalances grep flag: Ai33fA
+		// allBalances, err := client.GetBalances()
+		// assert.Equal(mockAllBalances, allBalances)
+		// assert.Equal(nil, err)
+
 		return nil
 	})
 
 	if err != nil {
+		cancel()
 		t.Log(errors.ErrorStack(err))
 		t.Fatal(err)
 	}
 }
 
 // Handle broker requests
-func mockBrokerServer(t *testing.T, tp *testServerParams, marketIDs []int64) {
+func mockBrokerServer(ctx context.Context, t *testing.T, tp *testServerParams, marketIDs []int64) {
 	if len(marketIDs) == 0 {
-		panic("marketIDs can't be empty")
+		t.Fatal("marketIDs can't be empty")
 	}
 
 	assert := assert.New(t)
@@ -455,21 +501,23 @@ func mockBrokerServer(t *testing.T, tp *testServerParams, marketIDs []int64) {
 
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case event := <-tp.rx:
 			var req pbb.BrokerRequest
 			err := proto.Unmarshal(event.data, &req)
 			if err != nil {
-				panic(err)
+				t.Fatal(err)
 			}
 
 			if req.Id == "" {
-				panic("request ID not set")
+				t.Fatal("request ID not set")
 			}
 
 			marketID := req.MarketId
 			if marketID == 0 {
 				if len(marketIDs) > 1 {
-					panic("marketIDs has more than one item, and req.MarketId is empty")
+					t.Fatal("marketIDs has more than one item, and req.MarketId is empty")
 				}
 
 				marketID = marketIDs[0]
@@ -500,8 +548,9 @@ func mockBrokerServer(t *testing.T, tp *testServerParams, marketIDs []int64) {
 					},
 				})
 				if err != nil {
-					panic(err)
+					t.Fatal(err)
 				}
+
 				tp.tx <- internal.WebsocketTx{
 					MessageType: websocket.BinaryMessage,
 					Data:        data,
@@ -528,15 +577,29 @@ func mockBrokerServer(t *testing.T, tp *testServerParams, marketIDs []int64) {
 
 				data, err := proto.Marshal(res)
 				if err != nil {
-					panic(err)
+					t.Fatal(err)
 				}
+
 				tp.tx <- internal.WebsocketTx{
 					MessageType: websocket.BinaryMessage,
 					Data:        data,
 				}
 
+			// AllBalances grep flag: Ai33fA
+			// case *pbb.BrokerRequest_AllBalancesRequest:
+			// 	res := createAllBalancesUpdate(req.Id, mockAllBalances)
+			// 	data, err := proto.Marshal(res)
+			// 	if err != nil {
+			// 		panic(err)
+			// 	}
+
+			// 	tp.tx <- internal.WebsocketTx{
+			// 		MessageType: websocket.BinaryMessage,
+			// 		Data:        data,
+			// 	}
+
 			default:
-				panic("invalid data received")
+				t.Fatal("invalid data received")
 			}
 		}
 	}
@@ -560,9 +623,9 @@ func initMockBrokerConn(t *testing.T, tp *testServerParams, marketID int64) erro
 	}
 
 	// Balances grep flag: Ki49fK
-	// if err := sendBalanceUpdate(t, tp, marketID, mockBalances); err != nil {
-	// 	return errors.Trace(err)
-	// }
+	if err := sendBalanceUpdate(t, tp, marketID, mockBalances); err != nil {
+		return errors.Trace(err)
+	}
 
 	return nil
 }
@@ -576,6 +639,7 @@ func sendOrdersUpdate(t *testing.T, tp *testServerParams, marketID int64, orders
 	}
 
 	ou := &pbb.BrokerUpdateMessage{
+
 		MarketId: marketID,
 		Update: &pbb.BrokerUpdateMessage_OrdersUpdate{
 			OrdersUpdate: &pbb.OrdersUpdate{
@@ -630,19 +694,55 @@ func sendPositionsUpdate(
 }
 
 // Balances grep flag: Ki49fK
-// func sendBalanceUpdate(
-// 	t *testing.T, tp *testServerParams, marketID int64, balances common.Balances,
-// ) error {
-// 	bu := &pbb.BrokerUpdateMessage{
-// 		MarketId: marketID,
-// 		Update: &pbb.BrokerUpdateMessage_BalancesUpdate{
-// 			BalancesUpdate: &pbb.BalancesUpdate{
-// 				Balances: balancesToProto(balances),
+func sendBalanceUpdate(
+	t *testing.T, tp *testServerParams, marketID int64, balances common.Balances,
+) error {
+	bu := &pbb.BrokerUpdateMessage{
+		MarketId: marketID,
+		Update: &pbb.BrokerUpdateMessage_BalancesUpdate{
+			BalancesUpdate: &pbb.BalancesUpdate{
+				Balances: balancesToProto(balances),
+			},
+		},
+	}
+
+	return sendBrokerUpdate(tp, bu)
+}
+
+// AllBalances grep flag: Ai33fA
+// func createAllBalancesUpdate(id string, balances common.ExchangeBalances) *pbb.BrokerUpdateMessage {
+// 	var result []*pbb.Balances
+
+// 	for name, xbals := range balances {
+// 		for ft, ftBals := range xbals.Balances {
+// 			var bals []*pbb.Balance
+
+// 			for _, b := range ftBals {
+// 				bals = append(bals, &pbb.Balance{
+// 					Asset:           b.Asset,
+// 					Symbol:          b.Symbol,
+// 					AmountTotal:     b.Total,
+// 					AmountAvailable: b.Available,
+// 				})
+// 			}
+
+// 			result = append(result, &pbb.Balances{
+// 				FundingType: exchanges.FundingTypeToProto[exchanges.FundingType(common.FundingTypeNames[ft])],
+// 				Name:        name,
+// 				Error:       xbals.Error,
+// 				Balances:    bals,
+// 			})
+// 		}
+// 	}
+
+// 	return &pbb.BrokerUpdateMessage{
+// 		Update: &pbb.BrokerUpdateMessage_AllBalancesUpdate{
+// 			AllBalancesUpdate: &pbb.AllBalancesUpdate{
+// 				Id:       id,
+// 				Balances: result,
 // 			},
 // 		},
 // 	}
-
-// 	return sendBrokerUpdate(tp, bu)
 // }
 
 func sendSessionStatusUpdate(t *testing.T, tp *testServerParams, marketID int64) error {

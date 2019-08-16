@@ -5,9 +5,24 @@ import (
 	"fmt"
 	"strconv"
 	"time"
+
+	"github.com/juju/errors"
 )
 
 type MarketID string
+
+func (id MarketID) Int64() (int64, error) {
+	if id == "" {
+		return 0, nil
+	}
+
+	n, err := strconv.ParseInt(string(id), 10, 64)
+	if err != nil {
+		return 0, errors.Annotatef(err, "invalid market id %q", id)
+	}
+
+	return n, nil
+}
 
 // MarketUpdate is a container for all market data callbacks. For any MarketUpdate
 // intance, it will only ever have one of its properties non-null.
@@ -298,4 +313,26 @@ func (s *OrderBookSnapshot) GetDeltasAgainst(oldSnapshot OrderBookSnapshot) Orde
 
 func (s *OrderBookSnapshot) Empty() bool {
 	return len(s.Bids) == 0 && len(s.Asks) == 0
+}
+
+func (s *OrderBookSnapshot) IsValid() bool {
+	if len(s.Bids) == 0 || len(s.Asks) == 0 {
+		return true
+	}
+
+	bidPrice, err := strconv.ParseFloat(s.Bids[0].Price, 64)
+	if err != nil {
+		return false
+	}
+
+	askPrice, err := strconv.ParseFloat(s.Asks[0].Price, 64)
+	if err != nil {
+		return false
+	}
+
+	if bidPrice >= askPrice {
+		return false
+	}
+
+	return true
 }

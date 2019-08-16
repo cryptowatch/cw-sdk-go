@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 
-	"code.cryptowat.ch/cw-sdk-go/common"
 	"github.com/rivo/tview"
+
+	"code.cryptowat.ch/cw-sdk-go/common"
 )
 
 type MarketSelectorParams struct {

@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"code.cryptowat.ch/cw-sdk-go/common"
 	"github.com/rivo/tview"
+
+	"code.cryptowat.ch/cw-sdk-go/common"
 )
 
 const (

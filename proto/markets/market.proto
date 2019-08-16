@@ -63,6 +63,7 @@ message MarketUpdateMessage {
     OrderBookUpdate orderBookUpdate = 2;
     OrderBookDeltaUpdate orderBookDeltaUpdate = 3;
     OrderBookSpreadUpdate orderBookSpreadUpdate = 11;
+    OrderBookLiquidityUpdate orderBookLiquidityUpdate = 12;
 
     TradesUpdate tradesUpdate = 4;
     IntervalsUpdate intervalsUpdate = 5;
@@ -122,6 +123,32 @@ message OrderBookSpreadUpdate {
   int64 timestamp = 1;
   Order bid = 2;
   Order ask = 3;
+}
+
+// OrderBookLiquidityUpdate represents sums for various bips in the book
+message OrderBookLiquidityUpdate {
+    int64 timestamp = 1;
+
+    message OrderBookLiquiditySums {
+        string totalBase = 1;
+        string totalQuote = 2;
+    }
+
+    message OrderBookLiquidityUpdateSide {
+        OrderBookLiquiditySums bip25  = 1; // 0.25%
+        OrderBookLiquiditySums bip50  = 2; // 0.50%
+        OrderBookLiquiditySums bip75  = 3; // 0.75%
+        OrderBookLiquiditySums bip100 = 4; // 1.00%
+        OrderBookLiquiditySums bip150 = 5; // 1.50%
+        OrderBookLiquiditySums bip200 = 6; // 2.00%
+        OrderBookLiquiditySums bip250 = 7; // 2.50%
+        OrderBookLiquiditySums bip300 = 8; // 3.00%
+        OrderBookLiquiditySums bip400 = 9; // 4.00%
+        OrderBookLiquiditySums bip500 = 10; // 5.00%
+    }
+
+    OrderBookLiquidityUpdateSide bid = 2;
+    OrderBookLiquidityUpdateSide ask = 3;
 }
 
 // TradesUpdate represents a set of new trades.

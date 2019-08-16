@@ -1,55 +1,74 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"strings"
+	"strconv"
+	"syscall"
 
 	"code.cryptowat.ch/cw-sdk-go/client/rest"
 	"code.cryptowat.ch/cw-sdk-go/client/websocket"
 	"code.cryptowat.ch/cw-sdk-go/common"
-)
+	"code.cryptowat.ch/cw-sdk-go/config"
 
-const (
-	exchangeSymbol = "kraken"
+	flag "github.com/spf13/pflag"
 )
-
-var (
-	apiKey    = flag.String("apikey", "", "API key to use.")
-	secretKey = flag.String("secretkey", "", "Secret key to use.")
-)
-
-func init() {
-	flag.Parse()
-}
 
 func main() {
+	// We need this since getting user's home dir can fail.
+	defaultConfig, err := config.DefaultFilepath()
+	if err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+
+	var (
+		configFile string
+		verbose    bool
+	)
+
+	flag.StringVarP(&configFile, "config", "c", defaultConfig, "Configuration file")
+	flag.BoolVarP(&verbose, "verbose", "v", false, "Prints all debug messages to stdout")
+
+	flag.Parse()
+
+	cfg, err := config.New(configFile)
+	if err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
+
 	restclient := rest.NewCWRESTClient(nil)
 
 	// Get exchange description, in particular we'll need the ID to use it
-	// in stream subscriptions
+	// in stream subscriptions.
 
-	// Get market descriptions, to know symbols (like "btcusd") by integer ID
+	// Get market descriptions, to know symbols (like "btcusd") by integer ID.
 	marketsSlice, err := restclient.GetMarketsIndex()
 	if err != nil {
-		log.Fatalf("failed to get markets of %s: %s", exchangeSymbol, err)
+		log.Printf("failed to get markets: %s", err)
+		os.Exit(1)
 	}
 
-	markets := map[int]rest.MarketDescr{}
+	markets := map[common.MarketID]rest.MarketDescr{}
 	for _, market := range marketsSlice {
-		markets[market.ID] = market
+		markets[common.MarketID(strconv.Itoa(market.ID))] = market
 	}
 
 	// Create a new stream connection instance. Note that the actual connection
 	// will happen later.
 	c, err := websocket.NewStreamClient(&websocket.StreamClientParams{
 		WSParams: &websocket.WSParams{
-			URL:       "wss://stream.cryptowat.ch",
-			APIKey:    *apiKey,
-			SecretKey: *secretKey,
+			URL:       cfg.StreamURL,
+			APIKey:    cfg.APIKey,
+			SecretKey: cfg.SecretKey,
 		},
 
 		Subscriptions: []*websocket.StreamSubscription{
@@ -59,68 +78,81 @@ func main() {
 		},
 	})
 	if err != nil {
-		log.Fatalf("%s", err)
+		log.Print(err)
+		os.Exit(1)
 	}
 
-	var lastError error
-
 	c.OnSubscriptionResult(func(sr websocket.SubscriptionResult) {
-		fmt.Println(sr)
+		log.Println(sr)
 	})
 
-	c.OnError(func(err error, disconnecting bool) {
-		if disconnecting {
-			lastError = err
+	if verbose {
+		lastErrChan := make(chan error, 1)
+
+		c.OnError(func(err error, disconnecting bool) {
+			if disconnecting {
+				lastErrChan <- err
+				return
+			}
+
+			log.Printf("Error: %s", err)
+		})
+
+		// Ask for the state transition updates, and present them to the user somehow.
+		c.OnStateChange(
+			websocket.ConnStateAny,
+			func(oldState, state websocket.ConnState) {
+				select {
+				case err := <-lastErrChan:
+					if err != nil {
+						log.Printf("State updated: %s -> %s: %s", websocket.ConnStateNames[oldState], websocket.ConnStateNames[state], err)
+					} else {
+						log.Printf("State updated: %s -> %s", websocket.ConnStateNames[oldState], websocket.ConnStateNames[state])
+					}
+				default:
+					log.Printf("State updated: %s -> %s", websocket.ConnStateNames[oldState], websocket.ConnStateNames[state])
+				}
+			},
+		)
+	}
+
+	// Listen for received market messages and print them.
+	c.OnMarketUpdate(func(market common.Market, md common.MarketUpdate) {
+		if md.TradesUpdate == nil {
 			return
 		}
 
-		log.Printf("Error: %s", err.Error())
-	})
-
-	// Ask for the state transition updates, and present them to the user somehow
-	c.OnStateChange(
-		websocket.ConnStateAny,
-		func(oldState, state websocket.ConnState) {
-			causeStr := ""
-			if lastError != nil {
-				causeStr = fmt.Sprintf(" (%s)", lastError)
-				lastError = nil
-			}
+		tradesUpdate := md.TradesUpdate
+		for _, trade := range tradesUpdate.Trades {
 			log.Printf(
-				"State updated: %s -> %s%s",
-				websocket.ConnStateNames[oldState],
-				websocket.ConnStateNames[state],
-				causeStr,
+				"%-25s %-25s %-25s %-25s",
+				fmt.Sprintf("Exchange: %s (%s)", market.ExchangeID, markets[market.ID].Exchange),
+				fmt.Sprintf("Pair: %s (%s)", market.CurrencyPairID, markets[market.ID].Pair),
+				fmt.Sprintf("Price: %s", trade.Price),
+				fmt.Sprintf("Amount: %s", trade.Amount),
 			)
-		},
-	)
-
-	// Listen for received market messages and print them
-	c.OnMarketUpdate(func(market common.Market, md common.MarketUpdate) {
-		if md.TradesUpdate != nil {
-			tradesUpdate := md.TradesUpdate
-			for _, trade := range tradesUpdate.Trades {
-				fmt.Printf(
-					"%v %34s %16s %16s\n",
-					trade.Timestamp, market.ExchangeID+" "+strings.ToUpper(market.CurrencyPairID), trade.Price, trade.Amount,
-				)
-			}
 		}
 	})
 
+	if verbose {
+		log.Printf("Connecting to %s ...", c.URL())
+	}
+
 	// Finally, connect.
-	c.Connect()
+	if err := c.Connect(); err != nil {
+		log.Print(err)
+		os.Exit(1)
+	}
 
-	// Setup OS signal handler
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGTERM)
 
-	// Wait until the OS signal is received, at which point we'll close the
-	// connection and quit
-	<-interrupt
-	log.Printf("Closing connection...\n")
+	// Wait until the OS signal is received, at which point we'll close the connection and quit.
+	<-signals
+
+	log.Print("Closing connection...")
 
 	if err := c.Close(); err != nil {
-		log.Fatalf("Failed to close connection: %s", err)
+		log.Printf("Failed to close connection: %s", err)
 	}
 }
